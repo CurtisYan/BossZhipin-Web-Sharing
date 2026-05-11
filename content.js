@@ -70,7 +70,7 @@
         position: fixed;
         z-index: 2147483647;
         right: 22px;
-        width: 132px;
+        width: 104px;
         height: 44px;
         border: 0;
         border-radius: 8px;
@@ -1258,21 +1258,22 @@
     const contentWidth = width - margin * 2;
     const tempCanvas = document.createElement("canvas");
     const tempCtx = tempCanvas.getContext("2d");
+    const headerLayout = layoutHeader(tempCtx, job.title, contentWidth);
     const descriptionLines = layoutDescription(tempCtx, job.description, contentWidth);
     const maxLines = 330;
     const clipped = descriptionLines.length > maxLines;
     const visibleLines = clipped ? descriptionLines.slice(0, maxLines) : descriptionLines;
     const bodyHeight = visibleLines.reduce((sum, line) => sum + line.height, 0);
-    const height = Math.min(32000, 585 + bodyHeight + 392);
+    const height = Math.min(32000, 585 + headerLayout.extraHeight + bodyHeight + 392);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
 
     drawBackground(ctx, width, height);
-    drawHeader(ctx, job, margin, width);
+    drawHeader(ctx, job, margin, width, headerLayout);
 
-    let y = 578;
+    let y = headerLayout.contentStartY;
     ctx.fillStyle = "#1f262b";
     ctx.font = '700 48px "PingFang SC", "Microsoft YaHei", sans-serif';
     ctx.fillText("职位详情", margin, y);
@@ -1323,7 +1324,7 @@
     ctx.fillRect(0, 275, width, 170);
   }
 
-  function drawHeader(ctx, job, margin, width) {
+  function drawHeader(ctx, job, margin, width, layout = layoutHeader(ctx, job.title, width - margin * 2)) {
     drawDate(ctx, job.dateParts, width - margin, 96);
 
     ctx.font = '700 42px "PingFang SC", "Microsoft YaHei", sans-serif';
@@ -1337,19 +1338,42 @@
 
     ctx.fillStyle = "#1f262b";
     ctx.font = '800 72px "PingFang SC", "Microsoft YaHei", sans-serif';
-    drawSingleLine(ctx, job.title, margin, 304, width - margin * 2, 72);
+    layout.titleLines.forEach((line, index) => {
+      ctx.fillText(line, margin, 304 + index * layout.titleLineHeight);
+    });
 
     ctx.fillStyle = "#5c6468";
     ctx.font = '400 42px "PingFang SC", "Microsoft YaHei", sans-serif';
     const meta = buildMobileShareMeta(job).join("/");
-    drawSingleLine(ctx, meta || "职位详情", margin, 405, width - margin * 2, 42);
+    drawSingleLine(ctx, meta || "职位详情", margin, layout.metaY, width - margin * 2, 42);
 
     ctx.strokeStyle = "#edf1f2";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(margin, 502);
-    ctx.lineTo(width - margin, 502);
+    ctx.moveTo(margin, layout.separatorY);
+    ctx.lineTo(width - margin, layout.separatorY);
     ctx.stroke();
+  }
+
+  function layoutHeader(ctx, title, maxWidth) {
+    const titleLineHeight = 84;
+    ctx.font = '800 72px "PingFang SC", "Microsoft YaHei", sans-serif';
+    const wrapped = wrapText(ctx, cleanInlineText(title) || "职位详情", maxWidth).filter(Boolean);
+    const titleLines = wrapped.length ? wrapped.slice(0, 2) : ["职位详情"];
+
+    if (wrapped.length > 2) {
+      titleLines[1] = ellipsizeText(ctx, titleLines[1], maxWidth);
+    }
+
+    const extraHeight = Math.max(0, titleLines.length - 1) * titleLineHeight;
+    return {
+      titleLines,
+      titleLineHeight,
+      extraHeight,
+      metaY: 405 + extraHeight,
+      separatorY: 502 + extraHeight,
+      contentStartY: 578 + extraHeight
+    };
   }
 
   function drawDate(ctx, dateParts, right, baseline) {
@@ -1463,6 +1487,15 @@
       value = value.slice(0, -1);
     }
     ctx.fillText(value === text ? value : `${value.slice(0, -1)}...`, x, y);
+  }
+
+  function ellipsizeText(ctx, text, maxWidth) {
+    const suffix = "...";
+    let value = cleanInlineText(text);
+    while (value && ctx.measureText(`${value}${suffix}`).width > maxWidth) {
+      value = value.slice(0, -1);
+    }
+    return value ? `${value}${suffix}` : suffix;
   }
 
   function loadImage(src) {
