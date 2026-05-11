@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BOSS 职位长图分享</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --teal: #12b8b6;
+        --ink: #1f2a30;
+        --muted: #6a777d;
+        --line: #dcebed;
+        --soft: #f3fbfb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 300px;
+        margin: 0;
+        font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        color: var(--ink);
+        background: linear-gradient(180deg, #f7ffff 0%, #ffffff 62%);
+      }
+
+      main {
+        padding: 18px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        font-weight: 800;
+        background: var(--teal);
+        letter-spacing: 0;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.35;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .debug-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .setting-block {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .setting-title {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 14px;
+      }
+
+      .mode-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .mode-option {
+        position: relative;
+      }
+
+      .mode-option input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .mode-card {
+        display: grid;
+        min-height: 54px;
+        place-items: center;
+        padding: 9px 8px;
+        border: 1px solid #d8e7e9;
+        border-radius: 8px;
+        color: var(--muted);
+        cursor: pointer;
+        background: #f8fbfb;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.3;
+        text-align: center;
+        transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+      }
+
+      .mode-option input:checked + .mode-card {
+        border-color: var(--teal);
+        color: #0d8f8e;
+        background: var(--soft);
+      }
+
+      .debug-text {
+        min-width: 0;
+      }
+
+      .debug-text strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 14px;
+      }
+
+      .debug-text span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .switch {
+        position: relative;
+        flex: 0 0 auto;
+        width: 46px;
+        height: 26px;
+      }
+
+      .switch input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .track {
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: #cbd8da;
+        transition: background 0.18s ease;
+      }
+
+      .track::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        left: 3px;
+        top: 3px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+        transition: transform 0.18s ease;
+      }
+
+      .switch input:checked + .track {
+        background: var(--teal);
+      }
+
+      .switch input:checked + .track::after {
+        transform: translateX(20px);
+      }
+
+      .status {
+        min-height: 20px;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <div class="mark">B</div>
+        <h1>BOSS 职位长图分享</h1>
+      </div>
+      <p>网页右下角点“做长图”即可生成并复制图片。</p>
+      <section class="setting-block" aria-labelledby="output-mode-title">
+        <strong class="setting-title" id="output-mode-title">输出方式</strong>
+        <div class="mode-group">
+          <label class="mode-option">
+            <input type="radio" name="output-mode" value="copy">
+            <span class="mode-card">复制到剪贴板</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="output-mode" value="download">
+            <span class="mode-card">下载 PNG</span>
+          </label>
+        </div>
+      </section>
+      <div class="debug-row">
+        <div class="debug-text">
+          <strong>调试模式</strong>
+          <span>若发现数据不准可开启调试模式。</span>
+        </div>
+        <label class="switch" aria-label="调试模式">
+          <input id="debug-mode" type="checkbox">
+          <span class="track"></span>
+        </label>
+      </div>
+      <div class="status" id="status"></div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
