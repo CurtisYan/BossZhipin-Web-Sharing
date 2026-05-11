@@ -1034,18 +1034,53 @@
   }
 
   async function findQrDataUrl(root) {
-    const before = new Set([...document.images].filter(isVisible).map((image) => image.currentSrc || image.src).filter(Boolean));
+    const before = collectVisibleQrSources();
     const shareNode = findShareNode(root);
+    const shareRect = shareNode?.getBoundingClientRect?.() || null;
 
     if (shareNode) {
-      clickShareNode(shareNode);
-      await delay(1200);
+      revealShareNode(shareNode);
+      await delay(450);
+
+      const hoverResult = await resolveQrDataUrl(before, shareRect);
+      if (hoverResult) return hoverResult;
+
+      revealShareNode(shareNode, { click: true });
+      await delay(900);
     }
 
-    const candidates = findQrCandidates(before);
-    const candidate = candidates[0];
-    if (!candidate) return "";
+    return resolveQrDataUrl(before, shareRect);
+  }
 
+  function collectVisibleQrSources() {
+    const sources = new Set([...document.images]
+      .filter(isVisible)
+      .map((image) => image.currentSrc || image.src)
+      .filter(Boolean));
+
+    document.querySelectorAll("div, span, i").forEach((node) => {
+      if (!isVisible(node)) return;
+      const source = backgroundImageSource(node);
+      if (source) sources.add(source);
+    });
+
+    return sources;
+  }
+
+  async function resolveQrDataUrl(before, shareRect) {
+    for (const candidate of findQrCandidates(before, shareRect)) {
+      try {
+        const dataUrl = await qrCandidateToDataUrl(candidate);
+        if (dataUrl) return dataUrl;
+      } catch {
+        // Try the next candidate; some canvases can be tainted by cross-origin images.
+      }
+    }
+
+    return "";
+  }
+
+  async function qrCandidateToDataUrl(candidate) {
     if (candidate.kind === "canvas") {
       return candidate.node.toDataURL("image/png");
     }
@@ -1064,13 +1099,16 @@
   }
 
   function findShareNode(root) {
-    const nodes = [...root.querySelectorAll("a, button, span, div")]
+    const nodes = [...new Set([
+      ...root.querySelectorAll("a, button, span, div"),
+      ...document.querySelectorAll("a, button, span, div")
+    ])]
       .filter(isVisible)
       .filter((node) => cleanInlineText(node.innerText || node.textContent || "").includes("微信扫码分享"));
     return nodes.sort((a, b) => area(a) - area(b))[0] || null;
   }
 
-  function clickShareNode(node) {
+  function revealShareNode(node, options = {}) {
     const actionable = node.closest("a, button, [role='button']") || node;
     const chain = [];
     let current = actionable;
@@ -1080,16 +1118,35 @@
     }
 
     for (const target of chain) {
+      const rect = target.getBoundingClientRect();
+      const clientX = rect.left + Math.min(18, Math.max(1, rect.width / 2));
+      const clientY = rect.top + Math.min(18, Math.max(1, rect.height / 2));
+
+      if (typeof PointerEvent !== "undefined") {
+        ["pointerenter", "pointerover", "pointermove"].forEach((type) => {
+          target.dispatchEvent(new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            pointerType: "mouse",
+            clientX,
+            clientY
+          }));
+        });
+      }
+
       ["mouseenter", "mouseover", "mousemove"].forEach((type) => {
         target.dispatchEvent(new MouseEvent(type, {
           bubbles: true,
           cancelable: true,
           view: window,
-          clientX: target.getBoundingClientRect().left + 8,
-          clientY: target.getBoundingClientRect().top + 8
+          clientX,
+          clientY
         }));
       });
     }
+
+    if (!options.click) return;
 
     const blockJavascriptHref = (event) => {
       if (event.target?.closest?.("a[href^='javascript:'], a[href^='JavaScript:']")) {
@@ -1114,54 +1171,84 @@
     }
   }
 
-  function findQrCandidates(before) {
+  function findQrCandidates(before, shareRect) {
     const imageCandidates = [...document.images]
       .filter(isVisible)
       .filter((image) => {
         const rect = image.getBoundingClientRect();
-        const src = image.currentSrc || image.src || "";
-        return rect.width >= 110 && rect.height >= 110 && rect.width <= 520 && rect.height <= 520 && (!before.has(src) || /qr|qrcode|weixin|mini|share|scene/i.test(src));
+        return isQrSized(rect);
       })
-      .map((node) => ({ kind: "image", node, score: qrScore(node) }));
+      .map((node) => ({ kind: "image", node, score: qrScore(node, before, shareRect) }));
 
     const canvasCandidates = [...document.querySelectorAll("canvas")]
       .filter(isVisible)
       .filter((canvas) => {
         const rect = canvas.getBoundingClientRect();
-        return rect.width >= 110 && rect.height >= 110 && rect.width <= 520 && rect.height <= 520;
+        return isQrSized(rect);
       })
-      .map((node) => ({ kind: "canvas", node, score: qrScore(node) + 8 }));
+      .map((node) => ({ kind: "canvas", node, score: qrScore(node, before, shareRect) + 8 }));
 
     const svgCandidates = [...document.querySelectorAll("svg")]
       .filter(isVisible)
       .filter((svg) => {
         const rect = svg.getBoundingClientRect();
-        return rect.width >= 110 && rect.height >= 110 && rect.width <= 520 && rect.height <= 520;
+        return isQrSized(rect);
       })
-      .map((node) => ({ kind: "svg", node, score: qrScore(node) + 4 }));
+      .map((node) => ({ kind: "svg", node, score: qrScore(node, before, shareRect) + 4 }));
 
     const backgroundCandidates = [...document.querySelectorAll("div, span, i")]
       .filter(isVisible)
       .map((node) => {
-        const style = getComputedStyle(node);
-        const match = style.backgroundImage.match(/url\(["']?(.+?)["']?\)/);
-        return match ? { node, source: match[1] } : null;
+        const source = backgroundImageSource(node);
+        return source ? { node, source } : null;
       })
       .filter(Boolean)
-      .filter(({ node, source }) => {
+      .filter(({ node }) => {
         const rect = node.getBoundingClientRect();
-        return rect.width >= 110 && rect.height >= 110 && rect.width <= 520 && rect.height <= 520 && /qr|qrcode|weixin|mini|share|scene|boss/i.test(source);
+        return isQrSized(rect);
       })
-      .map(({ node, source }) => ({ kind: "background", node, source, score: qrScore(node) + 6 }));
+      .map(({ node, source }) => ({ kind: "background", node, source, score: qrScore(node, before, shareRect, source) + 6 }));
 
-    return [...imageCandidates, ...canvasCandidates, ...svgCandidates, ...backgroundCandidates].sort((a, b) => b.score - a.score);
+    return [...imageCandidates, ...canvasCandidates, ...svgCandidates, ...backgroundCandidates]
+      .filter((candidate) => candidate.score >= 150)
+      .sort((a, b) => b.score - a.score);
   }
 
-  function qrScore(node) {
+  function isQrSized(rect) {
+    const width = rect.width || 0;
+    const height = rect.height || 0;
+    const ratio = width / height;
+    return width >= 110 && height >= 110 && width <= 540 && height <= 540 && ratio >= 0.72 && ratio <= 1.28;
+  }
+
+  function backgroundImageSource(node) {
+    const match = getComputedStyle(node).backgroundImage.match(/url\(["']?(.+?)["']?\)/);
+    return match?.[1] || "";
+  }
+
+  function qrScore(node, before, shareRect, source = "") {
     const rect = node.getBoundingClientRect();
+    const resolvedSource = source || node.currentSrc || node.src || "";
+    const text = cleanInlineText(node.closest("div, section, aside, article")?.innerText || node.getAttribute?.("alt") || "");
     let score = Math.min(rect.width, rect.height);
-    if (rect.top < window.innerHeight && rect.left > window.innerWidth * 0.45) score += 80;
+    const squarePenalty = Math.abs(rect.width - rect.height);
+
+    score -= squarePenalty * 0.45;
+    if (before.has(resolvedSource)) score -= 45;
+    if (/qr|qrcode|weixin|wechat|mini|scene|share|code|boss/i.test(resolvedSource)) score += 55;
+    if (/扫码|微信|分享|二维码/.test(text)) score += 75;
+
+    if (shareRect) {
+      const horizontalGap = Math.abs((rect.left + rect.width / 2) - (shareRect.left + shareRect.width / 2));
+      const belowShare = rect.top >= shareRect.top - 40;
+      if (belowShare && horizontalGap < 280) score += 155;
+      if (rect.top >= shareRect.bottom - 12 && rect.top <= shareRect.bottom + 360) score += 55;
+    } else if (rect.top < window.innerHeight && rect.left > window.innerWidth * 0.45) {
+      score += 80;
+    }
+
     if (getComputedStyle(node).position === "fixed") score += 20;
+    if (getComputedStyle(node).position === "absolute") score += 12;
     return score;
   }
 

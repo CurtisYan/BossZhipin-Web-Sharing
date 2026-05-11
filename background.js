@@ -9,6 +9,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function fetchAsDataUrl(url) {
+  const parsed = new URL(url);
+  if (!isAllowedImageUrl(parsed)) {
+    throw new Error("不支持的图片地址");
+  }
+
   const response = await fetch(url, {
     credentials: "include",
     cache: "no-store"
@@ -19,6 +24,13 @@ async function fetchAsDataUrl(url) {
   }
 
   const blob = await response.blob();
+  if (blob.type && !blob.type.startsWith("image/")) {
+    throw new Error("资源不是图片");
+  }
+  if (blob.size > 6 * 1024 * 1024) {
+    throw new Error("图片过大");
+  }
+
   const mime = blob.type || "image/png";
   const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -30,4 +42,12 @@ async function fetchAsDataUrl(url) {
   }
 
   return `data:${mime};base64,${btoa(binary)}`;
+}
+
+function isAllowedImageUrl(url) {
+  if (url.protocol !== "https:") return false;
+  return url.hostname === "zhipin.com" ||
+    url.hostname.endsWith(".zhipin.com") ||
+    url.hostname === "bosszhipin.com" ||
+    url.hostname.endsWith(".bosszhipin.com");
 }
