@@ -2,8 +2,10 @@ const DEBUG_MODE_KEY = "bossShareDebugMode";
 const OUTPUT_MODE_KEY = "bossShareOutputMode";
 const OUTPUT_MODE_COPY = "copy";
 const OUTPUT_MODE_DOWNLOAD = "download";
+const README_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing#readme";
 const debugToggle = document.querySelector("#debug-mode");
 const outputModeInputs = [...document.querySelectorAll("input[name='output-mode']")];
+const workflowLink = document.querySelector("#workflow-link");
 const statusNode = document.querySelector("#status");
 
 init();
@@ -31,6 +33,11 @@ async function init() {
       await notifyActiveTab({ type: "BOSS_SET_OUTPUT_MODE", mode }).catch(() => {});
       statusNode.textContent = mode === OUTPUT_MODE_DOWNLOAD ? "做长图后会直接下载 PNG。" : "做长图后会优先复制到剪贴板。";
     });
+  });
+
+  workflowLink.addEventListener("click", async () => {
+    await chrome.tabs.create({ url: README_URL });
+    window.close();
   });
 }
 
