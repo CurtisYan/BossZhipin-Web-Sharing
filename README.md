@@ -162,6 +162,20 @@
 
 ## 安装
 
+推荐直接使用 Release 包：
+
+1. 打开本仓库的 Releases 页面。
+2. 下载最新的 `boss-zhipin-web-sharing-v*.zip`。
+3. 解压 zip，得到扩展文件夹。
+4. 打开 Chrome 或 Edge 的扩展管理页。
+    * Chrome: chrome://extensions/
+    * Edge: edge://extensions/
+5. 打开“开发者模式”。
+6. 点击“加载已解压的扩展程序”。
+7. 选择刚刚解压出来的文件夹。
+
+本地源码安装：
+
 1. 打开 Chrome 或 Edge 的扩展管理页。
     * Chrome: chrome://extensions/
     * Edge: edge://extensions/
