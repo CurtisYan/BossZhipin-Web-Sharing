@@ -1827,6 +1827,9 @@
   function findDetailPageUrl(title, root) {
     if (/\/job_detail\//.test(location.pathname)) return location.href;
 
+    const mobileShareUrl = detailUrlFromMobileSharePage();
+    if (mobileShareUrl) return mobileShareUrl;
+
     const links = [...document.querySelectorAll("a[href*='/job_detail/']")]
       .map((link) => {
         const href = link.getAttribute("href");
@@ -1843,6 +1846,16 @@
       .sort((a, b) => b.score - a.score);
 
     return links[0]?.href || "";
+  }
+
+  function detailUrlFromMobileSharePage() {
+    if (location.hostname !== "m.zhipin.com") return "";
+
+    const match = location.pathname.match(/\/weijd-job\/([^/?#]+)/);
+    if (!match) return "";
+
+    const jobId = decodeURIComponent(match[1]).replace(/\.html$/i, "");
+    return jobId ? `https://www.zhipin.com/job_detail/${encodeURIComponent(jobId)}.html` : "";
   }
 
   function sameUrl(a, b) {
