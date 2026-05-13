@@ -1,12 +1,88 @@
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "BOSS_FETCH_AS_DATA_URL") return false;
+  if (!message) return false;
 
-  fetchAsDataUrl(message.url)
-    .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
-    .catch((error) => sendResponse({ ok: false, error: error.message }));
+  if (message.type === "BOSS_FETCH_AS_DATA_URL") {
+    fetchAsDataUrl(message.url)
+      .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
 
-  return true;
+    return true;
+  }
+
+  if (message.type === "BOSS_CAPTURE_QR_FROM_URL") {
+    captureQrFromUrl(message.url)
+      .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
+  return false;
 });
+
+async function captureQrFromUrl(url) {
+  const parsed = new URL(url);
+  if (!isAllowedDetailUrl(parsed)) {
+    throw new Error("不支持的职位详情地址");
+  }
+
+  const tab = await chrome.tabs.create({ url: parsed.href, active: false });
+
+  try {
+    await waitForTabComplete(tab.id, 12000);
+    await delay(600);
+    return await requestQrFromTab(tab.id);
+  } finally {
+    if (tab.id) {
+      await chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  }
+}
+
+async function requestQrFromTab(tabId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: "BOSS_CAPTURE_QR_IN_TAB" });
+      if (response?.ok) return response.dataUrl || "";
+    } catch (error) {
+      if (attempt === 0) {
+        await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] }).catch(() => {});
+      }
+    }
+
+    await delay(500);
+  }
+
+  return "";
+}
+
+function waitForTabComplete(tabId, timeout) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => finish(reject, new Error("职位详情页加载超时")), timeout);
+
+    const finish = (callback, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      callback(value);
+    };
+
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") {
+        finish(resolve);
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId)
+      .then((current) => {
+        if (current.status === "complete") finish(resolve);
+      })
+      .catch((error) => finish(reject, error));
+  });
+}
 
 async function fetchAsDataUrl(url) {
   const parsed = new URL(url);
@@ -50,4 +126,14 @@ function isAllowedImageUrl(url) {
     url.hostname.endsWith(".zhipin.com") ||
     url.hostname === "bosszhipin.com" ||
     url.hostname.endsWith(".bosszhipin.com");
+}
+
+function isAllowedDetailUrl(url) {
+  return url.protocol === "https:" &&
+    (url.hostname === "zhipin.com" || url.hostname.endsWith(".zhipin.com")) &&
+    /\/job_detail\//.test(url.pathname);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

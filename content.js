@@ -27,6 +27,13 @@
       return false;
     }
 
+    if (message?.type === "BOSS_CAPTURE_QR_IN_TAB") {
+      findQrDataUrl(findJobDetailRoot())
+        .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
     if (message?.type !== "BOSS_GENERATE_SHARE_IMAGE") return false;
 
     generateShareImage({
@@ -259,7 +266,7 @@
     }
 
     notify("正在尝试获取微信分享二维码...");
-    job.qrDataUrl = await findQrDataUrl(root).catch(() => "");
+    job.qrDataUrl = await findQrDataUrl(root, { fallbackUrl: findDetailPageUrl(job.title, root) }).catch(() => "");
 
     notify("正在绘制长图...");
     const blob = await renderJobPoster(job);
@@ -1033,7 +1040,7 @@
     return normalizeDescription(segment).split("\n").find((line) => line.length > 4) || "";
   }
 
-  async function findQrDataUrl(root) {
+  async function findQrDataUrl(root, options = {}) {
     const before = collectVisibleQrSources();
     const shareNode = findShareNode(root);
     const shareRect = shareNode?.getBoundingClientRect?.() || null;
@@ -1049,7 +1056,19 @@
       await delay(900);
     }
 
-    return resolveQrDataUrl(before, shareRect);
+    const localResult = await resolveQrDataUrl(before, shareRect);
+    if (localResult) return localResult;
+
+    if (options.fallbackUrl && !sameUrl(options.fallbackUrl, location.href)) {
+      return captureQrFromDetailPage(options.fallbackUrl);
+    }
+
+    return "";
+  }
+
+  async function captureQrFromDetailPage(url) {
+    const response = await chrome.runtime.sendMessage({ type: "BOSS_CAPTURE_QR_FROM_URL", url });
+    return response?.ok ? response.dataUrl || "" : "";
   }
 
   function collectVisibleQrSources() {
@@ -1824,6 +1843,14 @@
       .sort((a, b) => b.score - a.score);
 
     return links[0]?.href || "";
+  }
+
+  function sameUrl(a, b) {
+    try {
+      return new URL(a, location.href).href === new URL(b, location.href).href;
+    } catch {
+      return false;
+    }
   }
 
   function pickSalaryFromDetailHtml(html, title) {
