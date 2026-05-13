@@ -422,14 +422,33 @@
   }
 
   async function copyImageBlob(blob) {
-    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-      return false;
+    if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ [blob.type || "image/png"]: blob })
+        ]);
+        return true;
+      } catch {
+        // User activation may expire after background detail-page extraction.
+      }
     }
 
-    await navigator.clipboard.write([
-      new ClipboardItem({ [blob.type || "image/png"]: blob })
-    ]);
-    return true;
+    return copyImageBlobViaBackground(blob);
+  }
+
+  async function copyImageBlobViaBackground(blob) {
+    const dataUrl = await blobToDataUrl(blob);
+    const response = await chrome.runtime.sendMessage({ type: "BOSS_COPY_IMAGE_DATA_URL", dataUrl });
+    return Boolean(response?.ok);
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("图片读取失败"));
+      reader.readAsDataURL(blob);
+    });
   }
 
   function findJobDetailRoot() {

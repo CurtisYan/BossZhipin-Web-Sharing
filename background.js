@@ -25,11 +25,51 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "BOSS_COPY_IMAGE_DATA_URL") {
+    copyImageDataUrl(message.dataUrl)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
   return false;
 });
 
 async function captureQrFromUrl(url) {
   return withDetailTab(url, (tabId) => requestQrFromTab(tabId));
+}
+
+async function copyImageDataUrl(dataUrl) {
+  if (!String(dataUrl || "").startsWith("data:image/png;base64,")) {
+    throw new Error("不支持的图片数据");
+  }
+
+  await ensureOffscreenDocument();
+  const response = await chrome.runtime.sendMessage({ type: "BOSS_OFFSCREEN_COPY_IMAGE", dataUrl });
+  if (!response?.ok) {
+    throw new Error(response?.error || "剪贴板写入失败");
+  }
+}
+
+async function ensureOffscreenDocument() {
+  if (!chrome.offscreen?.createDocument) {
+    throw new Error("当前浏览器不支持后台剪贴板写入");
+  }
+
+  if (chrome.offscreen.hasDocument && await chrome.offscreen.hasDocument()) {
+    return;
+  }
+
+  try {
+    await chrome.offscreen.createDocument({
+      url: "offscreen.html",
+      reasons: ["CLIPBOARD"],
+      justification: "Copy generated job poster images to the clipboard after async extraction."
+    });
+  } catch (error) {
+    if (!String(error?.message || "").includes("Only a single offscreen")) throw error;
+  }
 }
 
 async function extractJobFromUrl(url) {
@@ -42,16 +82,32 @@ async function withDetailTab(url, task) {
     throw new Error("不支持的职位详情地址");
   }
 
-  const tab = await chrome.tabs.create({ url: parsed.href, active: false });
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await chrome.tabs.create({
+    url: parsed.href,
+    active: false,
+    openerTabId: activeTab?.id
+  });
 
   try {
+    await restoreActiveTab(activeTab, tab);
     await waitForTabComplete(tab.id, 12000);
+    await restoreActiveTab(activeTab, tab);
     await delay(600);
     return await task(tab.id);
   } finally {
     if (tab.id) {
       await chrome.tabs.remove(tab.id).catch(() => {});
     }
+  }
+}
+
+async function restoreActiveTab(activeTab, detailTab) {
+  if (!activeTab?.id || !detailTab?.id) return;
+
+  const currentDetailTab = await chrome.tabs.get(detailTab.id).catch(() => null);
+  if (currentDetailTab?.active) {
+    await chrome.tabs.update(activeTab.id, { active: true }).catch(() => {});
   }
 }
 
