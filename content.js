@@ -34,6 +34,13 @@
       return true;
     }
 
+    if (message?.type === "BOSS_EXTRACT_JOB_IN_TAB") {
+      extractCurrentJobForBackground()
+        .then((job) => sendResponse({ ok: true, job }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
     if (message?.type !== "BOSS_GENERATE_SHARE_IMAGE") return false;
 
     generateShareImage({
@@ -258,15 +265,18 @@
   async function generateShareImage(options = {}) {
     const mode = resolveOutputMode(options);
     notify("正在读取当前职位...");
-    const root = findJobDetailRoot();
-    const job = applyDebugOverride(await enrichJobFromDetailPage(extractJob(root), root));
+    const mobileShareUrl = detailUrlFromMobileSharePage();
+    const root = mobileShareUrl ? null : findJobDetailRoot();
+    const job = applyDebugOverride(mobileShareUrl ? await extractJobFromDetailPage(mobileShareUrl) : await enrichJobFromDetailPage(extractJob(root), root));
 
     if (!job.title || !job.description) {
       throw new Error("没有识别到完整职位详情，请先点击左侧某个职位后再试。");
     }
 
     notify("正在尝试获取微信分享二维码...");
-    job.qrDataUrl = await findQrDataUrl(root, { fallbackUrl: findDetailPageUrl(job.title, root) }).catch(() => "");
+    if (!job.qrDataUrl) {
+      job.qrDataUrl = await findQrDataUrl(root || document.body, { fallbackUrl: findDetailPageUrl(job.title, root || document.body) }).catch(() => "");
+    }
 
     notify("正在绘制长图...");
     const blob = await renderJobPoster(job);
@@ -554,6 +564,21 @@
     } catch {
       return job;
     }
+  }
+
+  async function extractCurrentJobForBackground() {
+    const root = findJobDetailRoot();
+    const job = await enrichJobFromDetailPage(extractJob(root), root);
+    job.qrDataUrl = await findQrDataUrl(root).catch(() => "");
+    return job;
+  }
+
+  async function extractJobFromDetailPage(url) {
+    const response = await chrome.runtime.sendMessage({ type: "BOSS_EXTRACT_JOB_FROM_URL", url });
+    if (!response?.ok || !response.job) {
+      throw new Error(response?.error || "网页端职位详情读取失败。");
+    }
+    return response.job;
   }
 
   function pickTitle(root, topLines) {
@@ -1057,7 +1082,7 @@
     }
 
     const localResult = await resolveQrDataUrl(before, shareRect);
-    if (localResult) return localResult;
+    if (shareRect && localResult) return localResult;
 
     if (options.fallbackUrl && !sameUrl(options.fallbackUrl, location.href)) {
       return captureQrFromDetailPage(options.fallbackUrl);

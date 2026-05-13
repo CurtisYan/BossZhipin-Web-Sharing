@@ -17,10 +17,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "BOSS_EXTRACT_JOB_FROM_URL") {
+    extractJobFromUrl(message.url)
+      .then((job) => sendResponse({ ok: true, job }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
   return false;
 });
 
 async function captureQrFromUrl(url) {
+  return withDetailTab(url, (tabId) => requestQrFromTab(tabId));
+}
+
+async function extractJobFromUrl(url) {
+  return withDetailTab(url, (tabId) => requestJobFromTab(tabId));
+}
+
+async function withDetailTab(url, task) {
   const parsed = new URL(url);
   if (!isAllowedDetailUrl(parsed)) {
     throw new Error("不支持的职位详情地址");
@@ -31,7 +47,7 @@ async function captureQrFromUrl(url) {
   try {
     await waitForTabComplete(tab.id, 12000);
     await delay(600);
-    return await requestQrFromTab(tab.id);
+    return await task(tab.id);
   } finally {
     if (tab.id) {
       await chrome.tabs.remove(tab.id).catch(() => {});
@@ -54,6 +70,23 @@ async function requestQrFromTab(tabId) {
   }
 
   return "";
+}
+
+async function requestJobFromTab(tabId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: "BOSS_EXTRACT_JOB_IN_TAB" });
+      if (response?.ok && response.job) return response.job;
+    } catch (error) {
+      if (attempt === 0) {
+        await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] }).catch(() => {});
+      }
+    }
+
+    await delay(500);
+  }
+
+  throw new Error("网页端职位详情读取失败");
 }
 
 function waitForTabComplete(tabId, timeout) {
