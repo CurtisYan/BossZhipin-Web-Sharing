@@ -1,3 +1,8 @@
+const UPDATE_API_URL = "https://api.github.com/repos/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
+const UPDATE_PAGE_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
+const UPDATE_CACHE_KEY = "bossShareUpdateInfo";
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return false;
 
@@ -33,8 +38,74 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "BOSS_CHECK_UPDATE") {
+    checkUpdate(Boolean(message.force))
+      .then((info) => sendResponse({ ok: true, ...info }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
   return false;
 });
+
+async function checkUpdate(force = false) {
+  const currentVersion = chrome.runtime.getManifest().version;
+  const stored = await chrome.storage.local.get({ [UPDATE_CACHE_KEY]: null });
+  const cached = stored[UPDATE_CACHE_KEY];
+  const now = Date.now();
+
+  if (!force && cached?.checkedAt && cached.currentVersion === currentVersion && now - cached.checkedAt < UPDATE_CHECK_INTERVAL_MS) {
+    return cached;
+  }
+
+  const fallback = {
+    checkedAt: now,
+    currentVersion,
+    latestVersion: currentVersion,
+    updateAvailable: false,
+    releaseUrl: UPDATE_PAGE_URL,
+    assetUrl: ""
+  };
+
+  try {
+    const response = await fetch(UPDATE_API_URL, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      cache: "no-store"
+    });
+
+    if (response.status === 404) {
+      await chrome.storage.local.set({ [UPDATE_CACHE_KEY]: fallback });
+      return fallback;
+    }
+
+    if (!response.ok) {
+      throw new Error(`更新检查失败：${response.status}`);
+    }
+
+    const release = await response.json();
+    const latestVersion = normalizeReleaseVersion(release.tag_name || release.name) || currentVersion;
+    const asset = Array.isArray(release.assets) ? release.assets.find((item) => /\.zip$/i.test(item.name || "")) : null;
+    const info = {
+      checkedAt: now,
+      currentVersion,
+      latestVersion,
+      tagName: release.tag_name || `v${latestVersion}`,
+      updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
+      releaseUrl: release.html_url || UPDATE_PAGE_URL,
+      assetUrl: asset?.browser_download_url || ""
+    };
+
+    await chrome.storage.local.set({ [UPDATE_CACHE_KEY]: info });
+    return info;
+  } catch (error) {
+    if (cached) return { ...cached, error: error.message };
+    return { ...fallback, error: error.message };
+  }
+}
 
 async function captureQrFromUrl(url) {
   return withDetailTab(url, (tabId) => requestQrFromTab(tabId));
@@ -221,6 +292,23 @@ function isAllowedDetailUrl(url) {
   return url.protocol === "https:" &&
     (url.hostname === "zhipin.com" || url.hostname.endsWith(".zhipin.com")) &&
     /\/job_detail\//.test(url.pathname);
+}
+
+function normalizeReleaseVersion(value) {
+  return String(value || "").trim().replace(/^v/i, "").match(/\d+(?:\.\d+){0,3}/)?.[0] || "";
+}
+
+function compareVersions(a, b) {
+  const left = normalizeReleaseVersion(a).split(".").map((part) => Number(part) || 0);
+  const right = normalizeReleaseVersion(b).split(".").map((part) => Number(part) || 0);
+  const length = Math.max(left.length, right.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] || 0) - (right[index] || 0);
+    if (diff !== 0) return diff;
+  }
+
+  return 0;
 }
 
 function delay(ms) {

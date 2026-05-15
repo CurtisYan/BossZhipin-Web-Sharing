@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BOSS 职位长图分享",
   "description": "在 BOSS 直聘网页端一键生成当前职位的分享长图，支持提取微信扫码分享二维码。",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "action": {
     "default_title": "生成 BOSS 职位长图",
     "default_popup": "popup.html"
@@ -27,7 +27,8 @@
     "https://img2.bosszhipin.com/*",
     "https://img3.bosszhipin.com/*",
     "https://img4.bosszhipin.com/*",
-    "https://*.bosszhipin.com/*"
+    "https://*.bosszhipin.com/*",
+    "https://api.github.com/*"
   ],
   "permissions": ["activeTab", "tabs", "scripting", "clipboardWrite", "storage", "offscreen"]
 }

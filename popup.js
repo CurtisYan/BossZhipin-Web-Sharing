@@ -3,9 +3,12 @@ const OUTPUT_MODE_KEY = "bossShareOutputMode";
 const OUTPUT_MODE_COPY = "copy";
 const OUTPUT_MODE_DOWNLOAD = "download";
 const README_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing#readme";
+const RELEASES_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
 const debugToggle = document.querySelector("#debug-mode");
 const outputModeInputs = [...document.querySelectorAll("input[name='output-mode']")];
 const workflowLink = document.querySelector("#workflow-link");
+const updateCard = document.querySelector("#update-card");
+const updateVersion = document.querySelector("#update-version");
 const statusNode = document.querySelector("#status");
 
 init();
@@ -39,6 +42,13 @@ async function init() {
     await chrome.tabs.create({ url: README_URL });
     window.close();
   });
+
+  updateCard.addEventListener("click", async () => {
+    await chrome.tabs.create({ url: updateCard.dataset.url || RELEASES_URL });
+    window.close();
+  });
+
+  refreshUpdateCard();
 }
 
 async function notifyActiveTab(message) {
@@ -63,4 +73,20 @@ function setOutputModeSelection(mode) {
 
 function normalizeOutputMode(mode) {
   return mode === OUTPUT_MODE_DOWNLOAD ? OUTPUT_MODE_DOWNLOAD : OUTPUT_MODE_COPY;
+}
+
+async function refreshUpdateCard() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: false });
+    if (!response?.ok || !response.updateAvailable) {
+      updateCard.hidden = true;
+      return;
+    }
+
+    updateVersion.textContent = `v${response.latestVersion}`;
+    updateCard.dataset.url = response.releaseUrl || RELEASES_URL;
+    updateCard.hidden = false;
+  } catch {
+    updateCard.hidden = true;
+  }
 }

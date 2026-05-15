@@ -285,11 +285,25 @@
 
     if (copied) {
       notify(job.qrDataUrl ? "职位长图已复制，可以直接粘贴发送。" : "长图已复制，但未抓到二维码；可先点击“微信扫码分享”弹出二维码后再试。");
+      scheduleUpdateNotice();
       return;
     }
 
     downloadBlob(blob, fileName(job));
     notify(shouldCopy ? "剪贴板写入失败，已改为下载 PNG。" : "职位长图已下载。");
+    scheduleUpdateNotice();
+  }
+
+  function scheduleUpdateNotice() {
+    window.setTimeout(() => {
+      chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: false })
+        .then((response) => {
+          if (response?.ok && response.updateAvailable) {
+            notify(`发现新版本 v${response.latestVersion}，修复了重大 Bug，强烈建议打开插件页更新。`, true);
+          }
+        })
+        .catch(() => {});
+    }, 900);
   }
 
   async function showDebugPreview() {

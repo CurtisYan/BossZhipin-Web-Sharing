@@ -183,6 +183,60 @@
         line-height: 1.35;
       }
 
+      .update-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid #ffd5c8;
+        border-radius: 8px;
+        color: #7a2a18;
+        cursor: pointer;
+        background: #fff5f1;
+        font: inherit;
+        text-align: left;
+      }
+
+      .update-card[hidden] {
+        display: none;
+      }
+
+      .update-badge {
+        display: grid;
+        flex: 0 0 auto;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: #ff6b4a;
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      .update-text {
+        min-width: 0;
+      }
+
+      .update-text strong,
+      .update-text span {
+        display: block;
+      }
+
+      .update-text strong {
+        font-size: 14px;
+        line-height: 1.35;
+      }
+
+      .update-text span {
+        margin-top: 2px;
+        color: #9a4b38;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
       .debug-text {
         min-width: 0;
       }
@@ -290,6 +344,13 @@
         <span class="workflow-text">
           <strong>推荐工作流</strong>
           <span>查看 README 里的完整用法</span>
+        </span>
+      </button>
+      <button class="update-card" id="update-card" type="button" hidden>
+        <span class="update-badge" aria-hidden="true">!</span>
+        <span class="update-text">
+          <strong>发现新版本 <span id="update-version"></span></strong>
+          <span>修复重大 Bug，强烈建议更新</span>
         </span>
       </button>
       <div class="status" id="status"></div>
