@@ -7,6 +7,7 @@ const RELEASES_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing/releas
 const debugToggle = document.querySelector("#debug-mode");
 const outputModeInputs = [...document.querySelectorAll("input[name='output-mode']")];
 const workflowLink = document.querySelector("#workflow-link");
+const checkUpdateButton = document.querySelector("#check-update");
 const updateCard = document.querySelector("#update-card");
 const updateVersion = document.querySelector("#update-version");
 const statusNode = document.querySelector("#status");
@@ -48,6 +49,19 @@ async function init() {
     window.close();
   });
 
+  checkUpdateButton.addEventListener("click", async () => {
+    const label = checkUpdateButton.textContent;
+    checkUpdateButton.disabled = true;
+    checkUpdateButton.textContent = "检查中";
+
+    try {
+      await refreshUpdateCard({ force: true, showStatus: true });
+    } finally {
+      checkUpdateButton.textContent = label;
+      checkUpdateButton.disabled = false;
+    }
+  });
+
   refreshUpdateCard();
 }
 
@@ -75,18 +89,27 @@ function normalizeOutputMode(mode) {
   return mode === OUTPUT_MODE_DOWNLOAD ? OUTPUT_MODE_DOWNLOAD : OUTPUT_MODE_COPY;
 }
 
-async function refreshUpdateCard() {
+async function refreshUpdateCard(options = {}) {
   try {
-    const response = await chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: false });
+    const response = await chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: Boolean(options.force) });
     if (!response?.ok || !response.updateAvailable) {
       updateCard.hidden = true;
+      if (options.showStatus) {
+        statusNode.textContent = response?.error ? `检查更新失败：${response.error}` : "当前已是最新版本。";
+      }
       return;
     }
 
     updateVersion.textContent = `v${response.latestVersion}`;
     updateCard.dataset.url = response.releaseUrl || RELEASES_URL;
     updateCard.hidden = false;
-  } catch {
+    if (options.showStatus) {
+      statusNode.textContent = `发现新版本 v${response.latestVersion}，建议立即更新。`;
+    }
+  } catch (error) {
     updateCard.hidden = true;
+    if (options.showStatus) {
+      statusNode.textContent = `检查更新失败：${error.message}`;
+    }
   }
 }

@@ -1,7 +1,7 @@
 const UPDATE_API_URL = "https://api.github.com/repos/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
 const UPDATE_PAGE_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
 const UPDATE_CACHE_KEY = "bossShareUpdateInfo";
-const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return false;

@@ -37,6 +37,29 @@
         margin-bottom: 14px;
       }
 
+      .brand-text {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .check-update {
+        flex: 0 0 auto;
+        border: 0;
+        color: #8a969a;
+        cursor: pointer;
+        background: transparent;
+        font: 500 11px/1 "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+
+      .check-update:hover {
+        color: #0d8f8e;
+      }
+
+      .check-update:disabled {
+        color: #b8c0c3;
+        cursor: default;
+      }
+
       .mark {
         display: grid;
         width: 34px;
@@ -309,7 +332,8 @@
     <main>
       <div class="brand">
         <div class="mark">B</div>
-        <h1>BOSS 职位长图分享</h1>
+        <h1 class="brand-text">BOSS 职位长图分享</h1>
+        <button class="check-update" id="check-update" type="button">检查更新</button>
       </div>
       <p>网页右下角点“做长图”即可生成并复制图片。</p>
       <section class="setting-block" aria-labelledby="output-mode-title">
