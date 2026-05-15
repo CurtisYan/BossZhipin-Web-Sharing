@@ -62,7 +62,7 @@ async function init() {
     }
   });
 
-  refreshUpdateCard();
+  refreshUpdateCard({ cacheOnly: true });
 }
 
 async function notifyActiveTab(message) {
@@ -91,7 +91,10 @@ function normalizeOutputMode(mode) {
 
 async function refreshUpdateCard(options = {}) {
   try {
-    const response = await chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: Boolean(options.force) });
+    const message = options.cacheOnly
+      ? { type: "BOSS_GET_CACHED_UPDATE" }
+      : { type: "BOSS_CHECK_UPDATE", force: Boolean(options.force) };
+    const response = await chrome.runtime.sendMessage(message);
     if (!response?.ok || !response.updateAvailable) {
       updateCard.hidden = true;
       if (options.showStatus) {

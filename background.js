@@ -46,8 +46,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "BOSS_GET_CACHED_UPDATE") {
+    getCachedUpdate()
+      .then((info) => sendResponse({ ok: true, ...info }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
   return false;
 });
+
+async function getCachedUpdate() {
+  const currentVersion = chrome.runtime.getManifest().version;
+  const stored = await chrome.storage.local.get({ [UPDATE_CACHE_KEY]: null });
+  const cached = stored[UPDATE_CACHE_KEY];
+  const now = Date.now();
+
+  if (!cached?.checkedAt || cached.currentVersion !== currentVersion || now - cached.checkedAt >= UPDATE_CHECK_INTERVAL_MS) {
+    return {
+      checkedAt: 0,
+      currentVersion,
+      latestVersion: currentVersion,
+      updateAvailable: false,
+      releaseUrl: UPDATE_PAGE_URL,
+      assetUrl: ""
+    };
+  }
+
+  return cached;
+}
 
 async function checkUpdate(force = false) {
   const currentVersion = chrome.runtime.getManifest().version;

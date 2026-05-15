@@ -296,7 +296,7 @@
 
   function scheduleUpdateNotice() {
     window.setTimeout(() => {
-      chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: true })
+      chrome.runtime.sendMessage({ type: "BOSS_GET_CACHED_UPDATE" })
         .then((response) => {
           if (response?.ok && response.updateAvailable) {
             notify(`发现新版本 v${response.latestVersion}，修复了重大 Bug，强烈建议打开插件页更新。`, true);
