@@ -1,3 +1,4 @@
+[欢迎大家访问 LINUX DO 社区](https://linux.do/)
 # BOSS 职位长图分享浏览器扩展
 
 <img src="assets/images/img1.png" width="50%" />
@@ -17,7 +18,7 @@
 - 其他支持自定义提示词的 AI 工具
 之后在 BOSS 网页端用本扩展导出岗位长图，再把长图发给 AI，让 AI 帮你分析这个岗位是否值得投递。
 
-![BOSS 直聘岗位长图演示](assets/images/bosszhipin-demo.gif)
+![BOSS 直聘岗位长图演示](https://cdn.nodeimage.com/i/OUrRcTXhrA9DWkIhc1mVZydcvnMiNSf8.gif)
 
 ---
 ## AI 岗位解析提示词
