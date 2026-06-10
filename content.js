@@ -548,9 +548,10 @@
     const scriptText = readPageDataText();
     const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
     const topLines = lines.slice(0, 16);
-    const title = pickTitle(root, topLines);
-    const salary = pickSalary(root, topLines, text, pageText, scriptText, title);
-    const meta = pickMeta(root, topLines, text, pageText, scriptText, title, salary);
+    const header = pickJobHeaderSnapshot(root);
+    const title = pickTitle(root, topLines, header);
+    const salary = pickSalary(root, topLines, text, pageText, scriptText, title, header);
+    const meta = pickMeta(root, topLines, text, pageText, scriptText, title, salary, header);
     const description = pickDescription(root, text);
     const recruiter = pickRecruiter(lines);
     const company = normalizeCompany(pickCompany(lines, description, title), recruiter) || "BOSS 直聘";
@@ -614,21 +615,163 @@
     return response.job;
   }
 
-  function pickTitle(root, topLines) {
-    const titleSelectors = [
-      ".job-name",
-      ".name",
-      ".job-title",
+  function pickJobHeaderSnapshot(root) {
+    const rootRect = root?.getBoundingClientRect?.() || { top: Number.POSITIVE_INFINITY, left: 0, right: window.innerWidth || 0 };
+    const selectors = [
+      ".job-primary",
+      ".job-banner",
+      ".job-header",
+      ".job-info",
+      ".job-detail-header",
+      ".job-status",
+      "[class*='job-primary']",
+      "[class*='job-banner']",
+      "[class*='job-header']",
+      "[class*='job-info']",
+      "[class*='job-status']"
+    ];
+    const scopes = new Set();
+
+    for (const selector of selectors) {
+      document.querySelectorAll(selector).forEach((node) => scopes.add(node));
+    }
+
+    document.querySelectorAll("section, article, header, main, div").forEach((node) => {
+      const text = cleanInlineText(node.innerText || node.textContent || "");
+      if (text.length >= 16 && text.length <= 900 && SALARY_RE.test(normalizeSalaryText(text))) {
+        scopes.add(node);
+      }
+    });
+
+    const candidates = [...scopes]
+      .filter(isVisible)
+      .map((node) => buildHeaderCandidate(node, rootRect))
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+
+    return candidates[0] || { title: "", salary: "", metaParts: [] };
+  }
+
+  function buildHeaderCandidate(node, rootRect) {
+    const rect = node.getBoundingClientRect();
+    const text = normalizeText(nodeText(node));
+    const inlineText = cleanInlineText(text);
+    const salary = cleanSalary(inlineText.match(SALARY_RE)?.[0] || "");
+    const title = pickHeaderTitle(node, salary);
+    const metaParts = pickHeaderMetaParts(node, title, salary);
+    if (!salary || !title || !looksLikeTitle(title) || looksLikeRecruiterTitle(title)) return null;
+
+    const style = getComputedStyle(node);
+    let score = 80;
+    if (rect.top < Math.max(rootRect.top, window.innerHeight || 0)) score += 36;
+    if (rect.bottom <= rootRect.top + 90) score += 46;
+    if (rect.top <= 80) score += 24;
+    if (/fixed|sticky/.test(style.position)) score += 28;
+    if (/立即沟通|感兴趣|完善在线简历|下载App/.test(inlineText)) score += 26;
+    if (metaParts.some((part) => CITY_RE.test(part))) score += 26;
+    if (inlineText.includes("职位描述")) score -= 95;
+    if (/工作地址|公司介绍|工商信息|微信扫码分享/.test(inlineText)) score -= 34;
+    if (inlineText.length > 520) score -= Math.min(90, (inlineText.length - 520) / 5);
+    if (rect.width > (window.innerWidth || 0) * 0.92 && rect.height > 520) score -= 35;
+
+    return { node, title: removeSalary(title), salary, metaParts, score };
+  }
+
+  function pickHeaderTitle(scope, salary) {
+    const selectors = [
       "h1",
       "h2",
+      ".job-title",
+      ".job-name",
       "[class*='job-name']",
-      "[class*='job-title']"
+      "[class*='job-title']",
+      ".name"
+    ];
+
+    for (const selector of selectors) {
+      const node = scope.querySelector(selector);
+      const text = removeSalary(cleanInlineText(node?.innerText || node?.textContent || ""));
+      if (looksLikeTitle(text) && !looksLikeRecruiterTitle(text)) return text;
+    }
+
+    const candidates = [...scope.querySelectorAll("h1, h2, h3, span, div, p")]
+      .filter(isVisible)
+      .map((node) => {
+        const text = removeSalary(cleanInlineText(node.innerText || node.textContent || ""));
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          text,
+          rect,
+          score: (parseFloat(style.fontSize) || 0) * 2 + (parseInt(style.fontWeight, 10) || 400) / 100
+        };
+      })
+      .filter((item) => looksLikeTitle(item.text) && !looksLikeRecruiterTitle(item.text))
+      .filter((item) => item.text !== salary && item.rect.height <= 90)
+      .sort((a, b) => b.score - a.score);
+
+    return candidates[0]?.text || "";
+  }
+
+  function pickHeaderMetaParts(scope, title, salary) {
+    const titleNode = findTitleNode(scope, title);
+    const titleRect = titleNode?.getBoundingClientRect?.() || null;
+    const raw = [];
+
+    [...scope.querySelectorAll("span, p, li, div")]
+      .filter(isVisible)
+      .forEach((node) => {
+        const rect = node.getBoundingClientRect();
+        if (titleRect) {
+          const belowTitle = rect.top >= titleRect.bottom - 14 && rect.top <= titleRect.bottom + 96;
+          const sameBand = Math.abs(centerY(rect) - (titleRect.bottom + 24)) < 70;
+          if (!belowTitle && !sameBand) return;
+        }
+        if (rect.height > 82 || rect.width > Math.max(520, (window.innerWidth || 0) * 0.42)) return;
+
+        const text = cleanInlineText(node.innerText || node.textContent || "");
+        if (!text || text === title || text === salary || SALARY_RE.test(normalizeSalaryText(text))) return;
+        if (/立即沟通|感兴趣|完善在线简历|新增附件简历|交通补助|生日福利|节日福利|免费工装|团建聚餐|餐补/.test(text)) return;
+
+        splitMetaText(text).forEach((part) => {
+          if (isLikelyMetaText(part, title, salary)) raw.push({ text: normalizeMetaPart(part), rect });
+        });
+      });
+
+    const unique = [];
+    for (const item of raw.sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)) {
+      if (!unique.includes(item.text)) unique.push(item.text);
+    }
+
+    const cityIndex = unique.findIndex((part) => CITY_RE.test(part));
+    return cityIndex > 0 ? unique.slice(cityIndex) : unique;
+  }
+
+  function looksLikeRecruiterTitle(text) {
+    const value = cleanInlineText(text);
+    return /^[\u4e00-\u9fa5]{1,4}(先生|女士)\s*(在线|刚刚活跃|今日活跃)?$/.test(value) ||
+      /^(先生|女士|在线|刚刚活跃|今日活跃)$/.test(value);
+  }
+
+  function pickTitle(root, topLines, header = null) {
+    if (header?.title && looksLikeTitle(header.title) && !looksLikeRecruiterTitle(header.title)) {
+      return removeSalary(header.title);
+    }
+
+    const titleSelectors = [
+      "h1",
+      "h2",
+      ".job-title",
+      ".job-name",
+      "[class*='job-name']",
+      "[class*='job-title']",
+      ".name"
     ];
 
     for (const selector of titleSelectors) {
       const node = root.querySelector(selector);
       const text = cleanInlineText(node?.innerText || "");
-      if (looksLikeTitle(text)) return removeSalary(text);
+      if (looksLikeTitle(text) && !looksLikeRecruiterTitle(text)) return removeSalary(text);
     }
 
     const visualCandidates = [...root.querySelectorAll("h1, h2, h3, span, div")]
@@ -638,12 +781,12 @@
         const style = getComputedStyle(node);
         return { text, size: parseFloat(style.fontSize), weight: parseInt(style.fontWeight, 10) || 400 };
       })
-      .filter((item) => looksLikeTitle(item.text))
+      .filter((item) => looksLikeTitle(item.text) && !looksLikeRecruiterTitle(item.text))
       .sort((a, b) => (b.size * 2 + b.weight / 100) - (a.size * 2 + a.weight / 100));
 
     if (visualCandidates[0]) return removeSalary(visualCandidates[0].text);
 
-    return removeSalary(topLines.find(looksLikeTitle) || "");
+    return removeSalary(topLines.find((line) => looksLikeTitle(line) && !looksLikeRecruiterTitle(line)) || "");
   }
 
   function looksLikeTitle(text) {
@@ -653,7 +796,9 @@
     return /[\u4e00-\u9fa5A-Za-z]/.test(text);
   }
 
-  function pickSalary(root, topLines, text, pageText, scriptText, title) {
+  function pickSalary(root, topLines, text, pageText, scriptText, title, header = null) {
+    if (header?.salary) return header.salary;
+
     const fixedHeaderSalary = pickSalaryFromFixedHeader(root, title);
     if (fixedHeaderSalary) return fixedHeaderSalary;
 
@@ -929,7 +1074,11 @@
     return score;
   }
 
-  function pickMeta(root, topLines, text, pageText, scriptText, title, salary) {
+  function pickMeta(root, topLines, text, pageText, scriptText, title, salary, header = null) {
+    if (Array.isArray(header?.metaParts) && header.metaParts.length) {
+      return metaFromParts(header.metaParts);
+    }
+
     const fixedParts = pickMetaFromFixedHeader(root, title, salary);
     if (fixedParts.length) {
       return metaFromParts(fixedParts);
@@ -1806,15 +1955,11 @@
     if (job.city) parts.push(job.city);
     if (job.salary) parts.push(job.salary);
 
-    if (job.isIntern) {
-      parts.push("在校", "应届");
-    } else {
-      const mobileParts = rawParts.filter((part) => {
-        if (!part || part === job.city || part === job.salary || part === degree) return false;
-        return /(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|在校|应届|实习|不限)/.test(part);
-      });
-      parts.push(...mobileParts);
-    }
+    const mobileParts = rawParts.filter((part) => {
+      if (!part || part === job.city || part === job.salary || part === degree) return false;
+      return /(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|\d+天\/周|\d+个月|\d+年|在校|应届|实习|不限|学历不限)/.test(part);
+    });
+    parts.push(...mobileParts);
 
     if (degree) parts.push(degree);
     return [...new Set(parts.filter(Boolean).map(normalizeMetaPart))];
