@@ -7,10 +7,12 @@
   const DEFAULT_QR_TEXT = "扫码查看职位详情";
   const EXTENSION_VERSION = chrome.runtime.getManifest().version;
   const DEBUG_MODE_KEY = "bossShareDebugMode";
+  const TEXT_EXPORT_MODE_KEY = "bossShareTextExportEnabled";
   const OUTPUT_MODE_KEY = "bossShareOutputMode";
   const OUTPUT_MODE_COPY = "copy";
   const OUTPUT_MODE_DOWNLOAD = "download";
   let debugModeEnabled = false;
+  let textExportEnabled = false;
   let debugJobOverride = null;
   let outputMode = OUTPUT_MODE_COPY;
 
@@ -23,6 +25,12 @@
 
     if (message?.type === "BOSS_SET_OUTPUT_MODE") {
       setOutputMode(message.mode);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (message?.type === "BOSS_SET_TEXT_EXPORT_MODE") {
+      setTextExportMode(Boolean(message.enabled));
       sendResponse({ ok: true });
       return false;
     }
@@ -69,6 +77,14 @@
     button.addEventListener("click", () => generateShareImage().catch((error) => notify(error.message, true)));
     document.documentElement.appendChild(button);
 
+    const textButton = document.createElement("button");
+    textButton.id = "boss-share-text-button";
+    textButton.type = "button";
+    textButton.textContent = "复制职位";
+    textButton.style.display = "none";
+    textButton.addEventListener("click", () => copyCurrentJobText().catch((error) => notify(error.message, true)));
+    document.documentElement.appendChild(textButton);
+
     const debugButton = document.createElement("button");
     debugButton.id = "boss-share-debug-button";
     debugButton.type = "button";
@@ -80,6 +96,7 @@
     const style = document.createElement("style");
     style.textContent = `
       #boss-share-long-image-button,
+      #boss-share-text-button,
       #boss-share-debug-button {
         position: fixed;
         z-index: 2147483647;
@@ -99,6 +116,7 @@
         bottom: 26px;
       }
 
+      #boss-share-text-button,
       #boss-share-debug-button {
         bottom: 78px;
         color: #0d8f8e;
@@ -111,6 +129,7 @@
         background: #0fa8a6;
       }
 
+      #boss-share-text-button:hover,
       #boss-share-debug-button:hover {
         background: #f1ffff;
       }
@@ -225,9 +244,11 @@
   function loadExtensionSettings() {
     chrome.storage?.local?.get({
       [DEBUG_MODE_KEY]: false,
+      [TEXT_EXPORT_MODE_KEY]: false,
       [OUTPUT_MODE_KEY]: OUTPUT_MODE_COPY
     }, (result) => {
       setDebugMode(Boolean(result?.[DEBUG_MODE_KEY]));
+      setTextExportMode(Boolean(result?.[TEXT_EXPORT_MODE_KEY]));
       setOutputMode(result?.[OUTPUT_MODE_KEY]);
     });
 
@@ -235,6 +256,9 @@
       if (areaName !== "local") return;
       if (changes[DEBUG_MODE_KEY]) {
         setDebugMode(Boolean(changes[DEBUG_MODE_KEY].newValue));
+      }
+      if (changes[TEXT_EXPORT_MODE_KEY]) {
+        setTextExportMode(Boolean(changes[TEXT_EXPORT_MODE_KEY].newValue));
       }
       if (changes[OUTPUT_MODE_KEY]) {
         setOutputMode(changes[OUTPUT_MODE_KEY].newValue);
@@ -244,8 +268,27 @@
 
   function setDebugMode(enabled) {
     debugModeEnabled = enabled;
+    syncFloatingButtonLayout();
+  }
+
+  function setTextExportMode(enabled) {
+    textExportEnabled = enabled;
+    syncFloatingButtonLayout();
+  }
+
+  function syncFloatingButtonLayout() {
+    const textButton = document.querySelector("#boss-share-text-button");
     const debugButton = document.querySelector("#boss-share-debug-button");
-    if (debugButton) debugButton.style.display = debugModeEnabled ? "block" : "none";
+
+    if (textButton) {
+      textButton.style.display = textExportEnabled ? "block" : "none";
+      textButton.style.bottom = "78px";
+    }
+
+    if (debugButton) {
+      debugButton.style.display = debugModeEnabled ? "block" : "none";
+      debugButton.style.bottom = textExportEnabled ? "130px" : "78px";
+    }
   }
 
   function setOutputMode(mode) {
@@ -294,6 +337,61 @@
     scheduleUpdateNotice();
   }
 
+  async function copyCurrentJobText() {
+    notify("正在读取当前职位...");
+    const mobileShareUrl = detailUrlFromMobileSharePage();
+    const root = mobileShareUrl ? null : findJobDetailRoot();
+    const job = applyDebugOverride(mobileShareUrl ? await extractJobFromDetailPage(mobileShareUrl) : await enrichJobFromDetailPage(extractJob(root), root));
+
+    if (!job.title || !job.description) {
+      throw new Error("没有识别到完整职位详情，请先点击左侧某个职位后再试。");
+    }
+
+    await copyTextToClipboard(formatJobText(job));
+    notify("职位文本已复制，可以直接粘贴使用。");
+    scheduleUpdateNotice();
+  }
+
+  function formatJobText(job) {
+    const lines = [];
+    const conditions = [...new Set((job.metaParts || [])
+      .map(normalizeMetaPart)
+      .filter((part) => part && part !== job.city && part !== job.salary))];
+
+    lines.push(`职位：${job.title}`);
+    if (job.company) lines.push(`公司：${job.company}`);
+    if (job.salary) lines.push(`薪资：${job.salary}`);
+    if (job.city) lines.push(`地点：${job.city}`);
+    if (conditions.length) lines.push(`条件：${conditions.join(" / ")}`);
+    if (job.recruiter) lines.push(`招聘人：${job.recruiter}`);
+    if (job.address) lines.push(`工作地址：${job.address}`);
+    lines.push("", "职位详情：", job.description);
+    if (job.url) lines.push("", `职位链接：${job.url}`);
+    return lines.join("\n");
+  }
+
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch {
+        // Fall back when async extraction consumes user activation.
+      }
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.documentElement.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    if (!copied) throw new Error("复制失败，请检查浏览器剪贴板权限后重试。");
+  }
+
   function scheduleUpdateNotice() {
     window.setTimeout(() => {
       chrome.runtime.sendMessage({ type: "BOSS_GET_CACHED_UPDATE" })
@@ -339,7 +437,7 @@
           height: Math.round(rootRect.height)
         }
       },
-      url: location.href
+      url: job.url
     };
 
     renderDebugPanel(payload);
@@ -570,7 +668,7 @@
       address,
       description,
       isIntern: isInternJob(salary, meta.parts, text),
-      url: location.href,
+      url: findDetailPageUrl(title, root) || location.href,
       date: formatDate(new Date()),
       dateParts: formatDateParts(new Date())
     };
@@ -2028,7 +2126,7 @@
   }
 
   function findDetailPageUrl(title, root) {
-    if (/\/job_detail\//.test(location.pathname)) return location.href;
+    if (/\/job_detail\//.test(location.pathname)) return canonicalDetailPageUrl(location.href);
 
     const mobileShareUrl = detailUrlFromMobileSharePage();
     if (mobileShareUrl) return mobileShareUrl;
@@ -2043,12 +2141,23 @@
         if (title && (text.includes(title) || parentText.includes(title))) score += 80;
         if (/active|selected|cur|current/.test(link.className || "")) score += 20;
         if (rect.left < (root?.getBoundingClientRect?.().left || window.innerWidth)) score += 8;
-        return href ? { href: new URL(href, location.href).href, score } : null;
+        const detailUrl = href ? canonicalDetailPageUrl(href) : "";
+        return detailUrl ? { href: detailUrl, score } : null;
       })
       .filter(Boolean)
       .sort((a, b) => b.score - a.score);
 
     return links[0]?.href || "";
+  }
+
+  function canonicalDetailPageUrl(value) {
+    try {
+      const url = new URL(value, location.href);
+      if (!/^\/job_detail\/[^/?#]+\.html$/i.test(url.pathname)) return "";
+      return `https://www.zhipin.com${url.pathname}`;
+    } catch {
+      return "";
+    }
   }
 
   function detailUrlFromMobileSharePage() {

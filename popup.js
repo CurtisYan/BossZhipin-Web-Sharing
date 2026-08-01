@@ -1,10 +1,12 @@
 const DEBUG_MODE_KEY = "bossShareDebugMode";
+const TEXT_EXPORT_MODE_KEY = "bossShareTextExportEnabled";
 const OUTPUT_MODE_KEY = "bossShareOutputMode";
 const OUTPUT_MODE_COPY = "copy";
 const OUTPUT_MODE_DOWNLOAD = "download";
 const README_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing#readme";
 const RELEASES_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
 const debugToggle = document.querySelector("#debug-mode");
+const textExportToggle = document.querySelector("#text-export-mode");
 const outputModeInputs = [...document.querySelectorAll("input[name='output-mode']")];
 const workflowLink = document.querySelector("#workflow-link");
 const checkUpdateButton = document.querySelector("#check-update");
@@ -17,10 +19,19 @@ init();
 async function init() {
   const stored = await chrome.storage.local.get({
     [DEBUG_MODE_KEY]: false,
+    [TEXT_EXPORT_MODE_KEY]: false,
     [OUTPUT_MODE_KEY]: OUTPUT_MODE_COPY
   });
   debugToggle.checked = Boolean(stored[DEBUG_MODE_KEY]);
+  textExportToggle.checked = Boolean(stored[TEXT_EXPORT_MODE_KEY]);
   setOutputModeSelection(stored[OUTPUT_MODE_KEY]);
+
+  textExportToggle.addEventListener("change", async () => {
+    const enabled = textExportToggle.checked;
+    await chrome.storage.local.set({ [TEXT_EXPORT_MODE_KEY]: enabled });
+    await notifyActiveTab({ type: "BOSS_SET_TEXT_EXPORT_MODE", enabled }).catch(() => {});
+    statusNode.textContent = enabled ? "职位页会显示“复制职位”按钮。" : "职位文本按钮已关闭。";
+  });
 
   debugToggle.addEventListener("change", async () => {
     const enabled = debugToggle.checked;
