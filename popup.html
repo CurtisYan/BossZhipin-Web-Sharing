@@ -213,11 +213,11 @@
         width: 100%;
         margin-top: 12px;
         padding: 12px;
-        border: 1px solid #ffd5c8;
+        border: 1px solid var(--line);
         border-radius: 8px;
-        color: #7a2a18;
+        color: var(--ink);
         cursor: pointer;
-        background: #fff5f1;
+        background: var(--soft);
         font: inherit;
         text-align: left;
       }
@@ -234,7 +234,7 @@
         place-items: center;
         border-radius: 8px;
         color: #fff;
-        background: #ff6b4a;
+        background: var(--teal);
         font-size: 16px;
         font-weight: 800;
       }
@@ -255,7 +255,7 @@
 
       .update-text span {
         margin-top: 2px;
-        color: #9a4b38;
+        color: var(--muted);
         font-size: 12px;
         line-height: 1.35;
       }
@@ -384,7 +384,7 @@
         <span class="update-badge" aria-hidden="true">!</span>
         <span class="update-text">
           <strong>发现新版本 <span id="update-version"></span></strong>
-          <span>修复重大 Bug，强烈建议更新</span>
+          <span>查看新功能、优化与修复内容</span>
         </span>
       </button>
       <div class="status" id="status"></div>

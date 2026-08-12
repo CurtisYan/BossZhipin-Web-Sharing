@@ -2,6 +2,26 @@ const UPDATE_API_URL = "https://api.github.com/repos/CurtisYan/BossZhipin-Web-Sh
 const UPDATE_PAGE_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing/releases/latest";
 const UPDATE_CACHE_KEY = "bossShareUpdateInfo";
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const UPDATE_ALARM_NAME = "bossShareUpdateCheck";
+const UPDATE_ALARM_PERIOD_MINUTES = 60;
+
+chrome.runtime.onInstalled.addListener(() => {
+  scheduleAutomaticUpdateChecks();
+  checkUpdate(true).catch(() => {});
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  scheduleAutomaticUpdateChecks();
+  checkUpdate(false).catch(() => {});
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === UPDATE_ALARM_NAME) {
+    checkUpdate(false).catch(() => {});
+  }
+});
+
+scheduleAutomaticUpdateChecks().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return false;
@@ -133,6 +153,16 @@ async function checkUpdate(force = false) {
     if (cached) return { ...cached, error: error.message };
     return { ...fallback, error: error.message };
   }
+}
+
+async function scheduleAutomaticUpdateChecks() {
+  const existing = await chrome.alarms.get(UPDATE_ALARM_NAME);
+  if (existing) return;
+
+  chrome.alarms.create(UPDATE_ALARM_NAME, {
+    delayInMinutes: 1,
+    periodInMinutes: UPDATE_ALARM_PERIOD_MINUTES
+  });
 }
 
 async function captureQrFromUrl(url) {

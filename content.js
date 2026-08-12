@@ -9,12 +9,21 @@
   const DEBUG_MODE_KEY = "bossShareDebugMode";
   const TEXT_EXPORT_MODE_KEY = "bossShareTextExportEnabled";
   const OUTPUT_MODE_KEY = "bossShareOutputMode";
+  const UPDATE_NOTICE_KEY = "bossShareUpdateNotice";
   const OUTPUT_MODE_COPY = "copy";
   const OUTPUT_MODE_DOWNLOAD = "download";
+  const UPDATE_NOTICE_INTERVAL_MS = 12 * 60 * 60 * 1000;
+  const FLOATING_STYLE_ID = "boss-share-floating-style";
+  const FLOATING_BUTTON_IDS = [
+    "boss-share-long-image-button",
+    "boss-share-text-button",
+    "boss-share-debug-button"
+  ];
   let debugModeEnabled = false;
   let textExportEnabled = false;
   let debugJobOverride = null;
   let outputMode = OUTPUT_MODE_COPY;
+  let floatingUiRepairScheduled = false;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "BOSS_SET_DEBUG_MODE") {
@@ -65,36 +74,28 @@
   });
 
   injectFloatingButton();
+  observeFloatingUi();
   loadExtensionSettings();
+  scheduleUpdateNotice();
 
   function injectFloatingButton() {
-    if (document.querySelector("#boss-share-long-image-button")) return;
+    const root = document.documentElement;
+    if (!root) return;
 
-    const button = document.createElement("button");
-    button.id = "boss-share-long-image-button";
-    button.type = "button";
-    button.textContent = "做长图";
-    button.addEventListener("click", () => generateShareImage().catch((error) => notify(error.message, true)));
-    document.documentElement.appendChild(button);
+    ensureFloatingButton("boss-share-long-image-button", "做长图", () => {
+      generateShareImage().catch((error) => notify(error.message, true));
+    });
+    ensureFloatingButton("boss-share-text-button", "复制职位", () => {
+      copyCurrentJobText().catch((error) => notify(error.message, true));
+    });
+    ensureFloatingButton("boss-share-debug-button", "调试字段", () => {
+      showDebugPreview().catch((error) => notify(error.message, true));
+    });
 
-    const textButton = document.createElement("button");
-    textButton.id = "boss-share-text-button";
-    textButton.type = "button";
-    textButton.textContent = "复制职位";
-    textButton.style.display = "none";
-    textButton.addEventListener("click", () => copyCurrentJobText().catch((error) => notify(error.message, true)));
-    document.documentElement.appendChild(textButton);
-
-    const debugButton = document.createElement("button");
-    debugButton.id = "boss-share-debug-button";
-    debugButton.type = "button";
-    debugButton.textContent = "调试字段";
-    debugButton.style.display = "none";
-    debugButton.addEventListener("click", () => showDebugPreview().catch((error) => notify(error.message, true)));
-    document.documentElement.appendChild(debugButton);
-
-    const style = document.createElement("style");
-    style.textContent = `
+    if (!document.getElementById(FLOATING_STYLE_ID)) {
+      const style = document.createElement("style");
+      style.id = FLOATING_STYLE_ID;
+      style.textContent = `
       #boss-share-long-image-button,
       #boss-share-text-button,
       #boss-share-debug-button {
@@ -237,8 +238,51 @@
         resize: vertical;
         font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
-    `;
-    document.documentElement.appendChild(style);
+      `;
+      root.appendChild(style);
+    }
+
+    syncFloatingButtonLayout();
+  }
+
+  function ensureFloatingButton(id, label, onClick) {
+    if (document.getElementById(id)) return;
+
+    const button = document.createElement("button");
+    button.id = id;
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    document.documentElement.appendChild(button);
+  }
+
+  function observeFloatingUi() {
+    const observer = new MutationObserver((mutations) => {
+      const removedFloatingUi = mutations.some((mutation) => [...mutation.removedNodes].some((node) => {
+        if (!(node instanceof Element)) return false;
+        if (node.id === FLOATING_STYLE_ID || FLOATING_BUTTON_IDS.includes(node.id)) return true;
+        return FLOATING_BUTTON_IDS.some((id) => node.querySelector?.(`#${id}`)) ||
+          Boolean(node.querySelector?.(`#${FLOATING_STYLE_ID}`));
+      }));
+
+      if (removedFloatingUi) scheduleFloatingUiRepair();
+    });
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.setInterval(() => {
+      if (!document.getElementById(FLOATING_STYLE_ID) || FLOATING_BUTTON_IDS.some((id) => !document.getElementById(id))) {
+        scheduleFloatingUiRepair();
+      }
+    }, 2000);
+  }
+
+  function scheduleFloatingUiRepair() {
+    if (floatingUiRepairScheduled) return;
+    floatingUiRepairScheduled = true;
+    window.setTimeout(() => {
+      floatingUiRepairScheduled = false;
+      injectFloatingButton();
+    }, 80);
   }
 
   function loadExtensionSettings() {
@@ -394,14 +438,29 @@
 
   function scheduleUpdateNotice() {
     window.setTimeout(() => {
-      chrome.runtime.sendMessage({ type: "BOSS_GET_CACHED_UPDATE" })
-        .then((response) => {
-          if (response?.ok && response.updateAvailable) {
-            notify(`发现新版本 v${response.latestVersion}，修复了重大 Bug，强烈建议打开插件页更新。`, true);
-          }
-        })
+      chrome.runtime.sendMessage({ type: "BOSS_CHECK_UPDATE", force: false })
+        .then((response) => maybeShowUpdateNotice(response))
         .catch(() => {});
     }, 900);
+  }
+
+  async function maybeShowUpdateNotice(response) {
+    if (!response?.ok || !response.updateAvailable) return;
+
+    const stored = await chrome.storage.local.get({ [UPDATE_NOTICE_KEY]: null });
+    const previous = stored[UPDATE_NOTICE_KEY];
+    const now = Date.now();
+    if (previous?.latestVersion === response.latestVersion && now - previous.notifiedAt < UPDATE_NOTICE_INTERVAL_MS) {
+      return;
+    }
+
+    await chrome.storage.local.set({
+      [UPDATE_NOTICE_KEY]: {
+        latestVersion: response.latestVersion,
+        notifiedAt: now
+      }
+    });
+    notify(`发现新版本 v${response.latestVersion}，可打开插件页查看更新内容。`);
   }
 
   async function showDebugPreview() {

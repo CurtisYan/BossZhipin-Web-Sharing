@@ -73,7 +73,7 @@ async function init() {
     }
   });
 
-  refreshUpdateCard({ cacheOnly: true });
+  refreshUpdateCard();
 }
 
 async function notifyActiveTab(message) {
