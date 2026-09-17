@@ -700,9 +700,13 @@
   }
 
   function extractJob(root) {
+    if (/\/web\/geek\/jobs/.test(location.pathname) && root === document.body) {
+      throw new Error("未定位到当前职位详情，请先打开职位或进入独立详情页后重试。");
+    }
     const text = normalizeText(nodeText(root));
-    const pageText = normalizeText(nodeText(document.body));
-    const scriptText = readPageDataText();
+    const fieldScope = jobFieldScope(root);
+    const pageText = normalizeText(nodeText(fieldScope));
+    const scriptText = /\/web\/geek\/jobs/.test(location.pathname) ? "" : readPageDataText();
     const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
     const topLines = lines.slice(0, 16);
     const header = pickJobHeaderSnapshot(root);
@@ -710,9 +714,10 @@
     const salary = pickSalary(root, topLines, text, pageText, scriptText, title, header);
     const meta = pickMeta(root, topLines, text, pageText, scriptText, title, salary, header);
     const description = pickDescription(root, text);
-    const recruiter = pickRecruiter(lines);
+    const recruiter = pickRecruiter(root, lines, description);
     const company = normalizeCompany(pickCompany(lines, description, title), recruiter) || "BOSS 直聘";
     const address = pickAddress(text);
+    completeMetaCity(meta, address);
 
     return {
       title,
@@ -772,6 +777,29 @@
     return response.job;
   }
 
+  // A detail body's header may be a sibling. Stop before the ancestor that
+  // also contains the results list; scrolling must not change job identity.
+  function jobFieldScope(root) {
+    if (!/\/web\/geek\/jobs/.test(location.pathname)) return document.body;
+    let scope = root;
+    const cards = ".job-card-wrapper, .job-card-box, .job-list-box, .job-list";
+    if (scope === document.body || scope.querySelector(cards)) return root;
+    while (scope.parentElement && scope.parentElement !== document.body) {
+      const parent = scope.parentElement;
+      if (parent.querySelector(cards)) break;
+      scope = parent;
+    }
+    return scope;
+  }
+
+  function isCityMeta(value) {
+    const text = normalizeMetaPart(value);
+    const city = text.match(CITY_RE)?.[0];
+    if (!city || !text.startsWith(city) || /公司|集团|有限|招聘|中心/.test(text)) return false;
+    const tail = text.slice(city.length);
+    return /^(?:市)?(?:[·・].+)?$/.test(tail);
+  }
+
   function pickJobHeaderSnapshot(root) {
     const rootRect = root?.getBoundingClientRect?.() || { top: Number.POSITIVE_INFINITY, left: 0, right: window.innerWidth || 0 };
     const selectors = [
@@ -787,13 +815,14 @@
       "[class*='job-info']",
       "[class*='job-status']"
     ];
-    const scopes = new Set();
+    const scope = jobFieldScope(root);
+    const scopes = new Set([scope]);
 
     for (const selector of selectors) {
-      document.querySelectorAll(selector).forEach((node) => scopes.add(node));
+      scope.querySelectorAll(selector).forEach((node) => scopes.add(node));
     }
 
-    document.querySelectorAll("section, article, header, main, div").forEach((node) => {
+    scope.querySelectorAll("section, article, header, main, div").forEach((node) => {
       const text = cleanInlineText(node.innerText || node.textContent || "");
       if (text.length >= 16 && text.length <= 900 && SALARY_RE.test(normalizeSalaryText(text))) {
         scopes.add(node);
@@ -825,7 +854,7 @@
     if (rect.top <= 80) score += 24;
     if (/fixed|sticky/.test(style.position)) score += 28;
     if (/立即沟通|感兴趣|完善在线简历|下载App/.test(inlineText)) score += 26;
-    if (metaParts.some((part) => CITY_RE.test(part))) score += 26;
+    if (metaParts.some((part) => isCityMeta(part))) score += 26;
     if (inlineText.includes("职位描述")) score -= 95;
     if (/工作地址|公司介绍|工商信息|微信扫码分享/.test(inlineText)) score -= 34;
     if (inlineText.length > 520) score -= Math.min(90, (inlineText.length - 520) / 5);
@@ -900,7 +929,7 @@
       if (!unique.includes(item.text)) unique.push(item.text);
     }
 
-    const cityIndex = unique.findIndex((part) => CITY_RE.test(part));
+    const cityIndex = unique.findIndex((part) => isCityMeta(part));
     return cityIndex > 0 ? unique.slice(cityIndex) : unique;
   }
 
@@ -986,7 +1015,7 @@
         if (line.length < 80 && match) addCandidate(match[0], line, 35);
       });
 
-    for (const node of findCurrentJobNodes(title)) {
+    for (const node of (/\/web\/geek\/jobs/.test(location.pathname) ? [] : findCurrentJobNodes(title))) {
       const nodeText = cleanInlineText(node.innerText || node.textContent || "");
       for (const match of nodeText.matchAll(new RegExp(SALARY_RE.source, "g"))) {
         addCandidate(match[0], nodeText, 48);
@@ -1047,9 +1076,9 @@
 
   function pickSalaryFromDocumentHeader(root, title) {
     const rootRect = root.getBoundingClientRect();
-    const titleNode = findTitleNode(root, title) || findTitleNode(document.body, title);
+    const titleNode = findTitleNode(root, title) || findTitleNode(jobFieldScope(root), title);
     const titleRect = titleNode?.getBoundingClientRect();
-    const candidates = collectVisibleSalaryCandidates(document.body)
+    const candidates = collectVisibleSalaryCandidates(jobFieldScope(root))
       .filter(({ text, rect }) => {
         if (text.length > 120) return false;
         if (rect.height > 120) return false;
@@ -1133,11 +1162,11 @@
   }
 
   function pickLooseSalaryNearTitle(root, title) {
-    const titleNode = findTitleNode(root, title) || findTitleNode(document.body, title);
+    const titleNode = findTitleNode(root, title) || findTitleNode(jobFieldScope(root), title);
     const titleRect = titleNode?.getBoundingClientRect();
     if (!titleRect) return "";
 
-    const nearbyText = [...document.querySelectorAll("span, div, p, b, strong, em, i")]
+    const nearbyText = [...jobFieldScope(root).querySelectorAll("span, div, p, b, strong, em, i")]
       .filter(isVisible)
       .map((node) => ({ node, text: normalizeSalaryText(node.innerText || node.textContent || ""), rect: node.getBoundingClientRect() }))
       .filter(({ text, rect }) => {
@@ -1305,13 +1334,13 @@
       unique.push(item.text);
     }
 
-    const cityIndex = unique.findIndex((part) => CITY_RE.test(part));
+    const cityIndex = unique.findIndex((part) => isCityMeta(part));
     return cityIndex > 0 ? unique.slice(cityIndex) : unique;
   }
 
   function metaFromParts(parts) {
-    const normalized = parts.map(normalizeMetaPart).filter(Boolean);
-    const city = normalized.find((part) => CITY_RE.test(part)) || "";
+    const normalized = parts.map(normalizeMetaPart).filter((part) => isLikelyMetaText(part, "", ""));
+    const city = normalized.find((part) => isCityMeta(part)) || "";
     const degree = normalized.find((part) => /(博士|硕士|本科|大专|中专\/中技|高中|学历不限|不限)/.test(part)) || "";
     const experience = normalized.find((part) => /(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|\d+天\/周|\d+个月|\d+年|不限)/.test(part) && part !== degree) || "";
     const conditions = normalized.filter((part) => /^(在校|应届|实习)$/.test(part));
@@ -1395,8 +1424,43 @@
     return false;
   }
 
-  function pickRecruiter(lines) {
-    return cleanInlineText(lines.find((line) => /(先生|女士|经理|HR|人事|招聘)/.test(line) && line.length <= 22) || "");
+  function cleanRecruiterName(value) {
+    const name = cleanInlineText(value)
+      .replace(/(?:刚刚活跃|今日活跃|近期活跃|在线|离线|\d+分钟前活跃|\d+小时前活跃).*$/, "")
+      .replace(/\s+V$/, "").trim();
+    if (!name || /[·・]|公司|经理|人事|招聘|主管|总监|负责人|^HR$|BOSS|职位|工作地址/.test(name)) return "";
+    return /^(?:[\u4e00-\u9fa5]{2,6}|[\u4e00-\u9fa5]{1,4}(?:先生|女士)|[A-Za-z][A-Za-z .'-]{1,30})$/.test(name) ? name : "";
+  }
+
+  function pickRecruiter(root, lines, description = "") {
+    // Prefer the name inside the recruiter card, never a page-wide .name.
+    for (const selector of [".boss-info .name", ".boss-info h2", ".job-boss-info .name", ".job-boss-info h2", ".recruiter-info .name", ".boss-name"]) {
+      for (const node of root.querySelectorAll(selector)) {
+        if (!isVisible(node)) continue;
+        const name = cleanRecruiterName(nodeText(node));
+        if (name) return name;
+      }
+    }
+    // Some layouts split the name, activity and company/job title into lines.
+    const outsideDescription = lines.filter((line) => !description.includes(line));
+    for (let i = 0; i < outsideDescription.length; i += 1) {
+      if (!/[·・]\s*(?:经理|HR|人事|招聘|主管|总监|负责人)/i.test(outsideDescription.slice(i, i + 2).join(" "))) continue;
+      for (let j = i - 1; j >= Math.max(0, i - 3); j -= 1) {
+        const name = cleanRecruiterName(outsideDescription[j]);
+        if (name) return name;
+      }
+    }
+    return cleanRecruiterName(outsideDescription.find((line) => /^[\u4e00-\u9fa5]{1,4}(先生|女士)(?:\s|$)/.test(line)) || "");
+  }
+
+  function completeMetaCity(meta, address) {
+    if (meta.city) return meta;
+    // Only use the current job's dedicated address; never search page text.
+    const city = cleanInlineText(address).match(CITY_RE);
+    if (!city || city.index !== 0) return meta;
+    meta.city = city[0];
+    meta.parts = [meta.city, ...meta.parts.filter((part) => part !== meta.city)];
+    return meta;
   }
 
   function pickAddress(text) {
@@ -2088,7 +2152,7 @@
     if (value.length > 24 && !/[\s｜|,，;；]/.test(value)) return false;
 
     return splitMetaText(value).some((part) => {
-      return CITY_RE.test(part) ||
+      return isCityMeta(part) ||
         /^(\d+天\/周|\d+个月|\d+年|\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|在校|应届|实习|本科|大专|硕士|博士|中专\/中技|高中|学历不限|不限)$/.test(part);
     });
   }
@@ -2200,13 +2264,19 @@
         if (title && (text.includes(title) || parentText.includes(title))) score += 80;
         if (/active|selected|cur|current/.test(link.className || "")) score += 20;
         if (rect.left < (root?.getBoundingClientRect?.().left || window.innerWidth)) score += 8;
+        const inDetail = root && jobFieldScope(root).contains(link);
+        const matchesTitle = title && (text === title || parentText.includes(title));
+        if (!inDetail && !matchesTitle) return null;
+        if (inDetail) score += 120;
         const detailUrl = href ? canonicalDetailPageUrl(href) : "";
         return detailUrl ? { href: detailUrl, score } : null;
       })
       .filter(Boolean)
       .sort((a, b) => b.score - a.score);
 
-    return links[0]?.href || "";
+    const best = links[0];
+    if (!best || links.some((item) => item.score === best.score && item.href !== best.href)) return "";
+    return best.href;
   }
 
   function canonicalDetailPageUrl(value) {
