@@ -310,11 +310,16 @@ async function fetchAsDataUrl(url) {
 
   const response = await fetch(url, {
     credentials: "include",
-    cache: "no-store"
+    cache: "no-store",
+    redirect: "error"
   });
 
   if (!response.ok) {
     throw new Error(`图片请求失败：${response.status}`);
+  }
+
+  if (!isAllowedImageUrl(new URL(response.url))) {
+    throw new Error("不支持的图片地址");
   }
 
   const blob = await response.blob();
