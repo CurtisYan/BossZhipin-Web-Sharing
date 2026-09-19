@@ -15,7 +15,7 @@ function load() {
   };
   const start = source.indexOf('  chrome.runtime.onMessage.addListener');
   const end = source.indexOf('  function injectFloatingButton()');
-  vm.runInNewContext(source.slice(0, start) + '\n globalThis.api = { jobFieldScope, pickJobHeaderSnapshot, metaFromParts, isCityMeta, findDetailPageUrl, pickRecruiter, completeMetaCity, buildMobileShareMeta, pickDescription, findDegree, formatJobText };\n' + source.slice(end), context);
+  vm.runInNewContext(source.slice(0, start) + '\n globalThis.api = { jobFieldScope, pickJobHeaderSnapshot, metaFromParts, isCityMeta, findDetailPageUrl, pickRecruiter, completeMetaCity, buildMobileShareMeta, pickDescription, findDegree, formatJobText, scoreDetailNode, qrScore, findQrDataUrl, findQrCandidates };\n' + source.slice(end), context);
   return context;
 }
 function node(text = '容器', left = 525, top = -590) {
@@ -148,4 +148,59 @@ test('copied text includes full job notice, job URL and separate project URL', (
   assert.ok(output.includes('外包岗位！！'));
   assert.ok(output.includes('职位链接：https://www.zhipin.com/job_detail/example.html'));
   assert.ok(output.endsWith('项目地址：https://github.com/CurtisYan/BossZhipin-Web-Sharing'));
+});
+
+test('detail root rejects app download banner even at far right of viewport', () => {
+  const ctx = load();
+  ctx.location.pathname = '/job_detail/example.html';
+  const banner = node('下载App, 不错过Boss每一条消息', 1046, 94);
+  banner.getBoundingClientRect = () => ({ left: 1046, top: 94, width: 262, height: 22 });
+  assert.equal(ctx.api.scoreDetailNode(banner), -Infinity);
+  const detail = node('职位描述\n电子商务专业\n' + '协助电商大数据等项目产品设计、案例研究。'.repeat(10));
+  detail.getBoundingClientRect = () => ({ left: 30, top: 200, width: 880, height: 700 });
+  assert.ok(ctx.api.scoreDetailNode(detail) > 0);
+});
+test('internship schedule survives header elements outside title visual band', () => {
+  const { ctx, root, header } = fixture();
+  header.innerText = '数据开发实习生 160-180元/天\n广州 4天/周 3个月 本科';
+  const result = ctx.api.pickJobHeaderSnapshot(root);
+  assert.ok(result.metaParts.includes('4天/周'));
+  assert.ok(result.metaParts.includes('3个月'));
+  assert.ok(result.metaParts.includes('本科'));
+});
+
+test('QR selection stays inside current sharing popup and excludes app and brand images', () => {
+  const { api } = load();
+  const image = node();
+  image.complete = true; image.naturalWidth = 300; image.src = 'https://example.com/current-job.png';
+  const scope = node();
+  scope.queries = { '.wechat-qrcode-wrap .qrcode-img, #wechat-qrcode-wrap .qrcode-img': [image] };
+  const trigger = node(); trigger.closest = () => scope;
+  assert.equal(api.findQrCandidates(new Set(), null, trigger)[0].source, image.src);
+  image.complete = false;
+  assert.equal(api.findQrCandidates(new Set(), null, trigger).length, 0);
+  assert.equal(api.findQrCandidates(new Set(), null, null).length, 0);
+});
+test('list description ends before recruiter Guan and keeps all authored text', () => {
+  const { api } = load();
+  const root = node();
+  const text = '【现场笔试+面试】\n岗位职责：\n' + '负责数据分析与数据建模工作。'.repeat(6) + '\n8、能接受适当加班。';
+  root.queries = { '.job-detail-body .desc': [node(text)] };
+  assert.equal(api.pickDescription(root, '职位描述\n' + text + '\n关女士\n今日活跃'), text);
+});
+test('QR candidates reject download codes and unrelated images far from sharing', () => {
+  const { api } = load();
+  const qr = node();
+  qr.getBoundingClientRect = () => ({ left: 500, top: 150, bottom: 330, width: 180, height: 180 });
+  qr.src = 'https://example.com/job-share.png';
+  qr.closest = (selector) => selector.includes('download') ? null : { innerText: '微信扫码分享' };
+  const trigger = { left: 500, top: 100, bottom: 130, width: 100 };
+  assert.ok(api.qrScore(qr, new Set(), trigger) >= 150);
+  assert.equal(api.qrScore(qr, new Set(), null), -Infinity);
+  assert.equal(api.qrScore(qr, new Set(), { ...trigger, left: 1200 }), -Infinity);
+  qr.src = 'https://example.com/app-download-qrcode.png';
+  assert.equal(api.qrScore(qr, new Set(), trigger), -Infinity);
+  qr.src = 'https://example.com/opaque.png';
+  qr.closest = () => ({ innerText: '下载App' });
+  assert.equal(api.qrScore(qr, new Set(), trigger), -Infinity);
 });

@@ -659,7 +659,15 @@
 
   function scoreDetailNode(node) {
     const rect = node.getBoundingClientRect();
-    const text = visibleText(node);
+    const text = nodeText(node);
+    // Class-name matches are only hints. Never score banners or tiny controls
+    // as detail panels, regardless of their position on the page.
+    const descriptionNode = node.querySelector(".job-sec-text, .job-description, .job-detail-body .text");
+    const hasDescription = /职位描述|岗位职责|任职要求/.test(text) || Boolean(descriptionNode && nodeText(descriptionNode).trim());
+    if (!hasDescription || text.trim().length < 60 || rect.width < 320 || rect.height < 120) return -Infinity;
+    if (/\/job_detail\//.test(location.pathname)) {
+      return 100 + (descriptionNode ? 100 : 0) + (text.includes("微信扫码分享") ? 30 : 0) + (text.includes("工作地址") ? 10 : 0) - (node === document.body ? 50 : 0);
+    }
     let score = 0;
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
     const likelyOuterMixedContainer = rect.left < viewportWidth * 0.25 && rect.width > viewportWidth * 0.55 && text.includes("牛牛查公司");
@@ -716,6 +724,9 @@
     const salary = pickSalary(root, topLines, text, pageText, scriptText, title, header);
     const meta = pickMeta(root, topLines, text, pageText, scriptText, title, salary, header);
     const description = pickDescription(root, text);
+    if (!description || /^下载\s*App[,，、\s]/i.test(description)) {
+      throw new Error("未读取到职位正文，请等待详情加载完成后重试。");
+    }
     const recruiter = pickRecruiter(root, lines, description);
     const company = normalizeCompany(pickCompany(lines, description, title), recruiter) || "BOSS 直聘";
     const address = pickAddress(text);
@@ -847,6 +858,15 @@
     const salary = cleanSalary(inlineText.match(SALARY_RE)?.[0] || "");
     const title = pickHeaderTitle(node, salary);
     const metaParts = pickHeaderMetaParts(node, title, salary);
+    // Internship schedules may sit in links or nested inline elements outside
+    // the title's visual band. Read explicit requirements from this header only.
+    const headerIntro = text.split(/职位描述|岗位职责|任职要求/)[0];
+    if (headerIntro.length < 900) {
+      for (const part of headerIntro.match(/\d+\s*天\s*[／/]\s*周|\d+\s*个月|经验不限|学历不限|本科|大专|硕士|博士/g) || []) {
+        const normalized = normalizeMetaPart(part.replace(/\s+/g, "").replace(/／/g, "/"));
+        if (!metaParts.includes(normalized)) metaParts.push(normalized);
+      }
+    }
     if (!salary || !title || !looksLikeTitle(title) || looksLikeRecruiterTitle(title)) return null;
 
     const style = getComputedStyle(node);
@@ -1352,6 +1372,7 @@
 
   function pickDescription(root, text) {
     const descriptionSelectors = [
+      ".job-detail-body .desc",
       ".job-sec-text",
       ".job-description",
       "[class*='job-sec-text']",
@@ -1474,20 +1495,21 @@
   async function findQrDataUrl(root, options = {}) {
     const before = collectVisibleQrSources();
     const shareNode = findShareNode(root);
+    if (!shareNode) return "";
     const shareRect = shareNode?.getBoundingClientRect?.() || null;
 
     if (shareNode) {
       revealShareNode(shareNode);
       await delay(450);
 
-      const hoverResult = await resolveQrDataUrl(before, shareRect);
+      const hoverResult = await resolveQrDataUrl(before, shareRect, shareNode);
       if (hoverResult) return hoverResult;
 
       revealShareNode(shareNode, { click: true });
       await delay(900);
     }
 
-    const localResult = await resolveQrDataUrl(before, shareRect);
+    const localResult = await resolveQrDataUrl(before, shareRect, shareNode);
     if (shareRect && localResult) return localResult;
 
     if (options.fallbackUrl && !sameUrl(options.fallbackUrl, location.href)) {
@@ -1517,8 +1539,8 @@
     return sources;
   }
 
-  async function resolveQrDataUrl(before, shareRect) {
-    for (const candidate of findQrCandidates(before, shareRect)) {
+  async function resolveQrDataUrl(before, shareRect, shareNode) {
+    for (const candidate of findQrCandidates(before, shareRect, shareNode)) {
       try {
         const dataUrl = await qrCandidateToDataUrl(candidate);
         if (dataUrl) return dataUrl;
@@ -1549,9 +1571,10 @@
   }
 
   function findShareNode(root) {
+    const trigger = [...root.querySelectorAll(".link-wechat-share")].find(isVisible);
+    if (trigger) return trigger;
     const nodes = [...new Set([
-      ...root.querySelectorAll("a, button, span, div"),
-      ...document.querySelectorAll("a, button, span, div")
+      ...root.querySelectorAll("a, button, span, div")
     ])]
       .filter(isVisible)
       .filter((node) => cleanInlineText(node.innerText || node.textContent || "").includes("微信扫码分享"));
@@ -1621,47 +1644,15 @@
     }
   }
 
-  function findQrCandidates(before, shareRect) {
-    const imageCandidates = [...document.images]
+  function findQrCandidates(before, shareRect, shareNode) {
+    // Verified on both live layouts: the JD QR is qrcode-img inside the
+    // current share control. Never scan the page for square images.
+    if (!shareNode) return [];
+    const scope = shareNode.closest(".wechat-share") || shareNode;
+    return [...scope.querySelectorAll(".wechat-qrcode-wrap .qrcode-img, #wechat-qrcode-wrap .qrcode-img")]
       .filter(isVisible)
-      .filter((image) => {
-        const rect = image.getBoundingClientRect();
-        return isQrSized(rect);
-      })
-      .map((node) => ({ kind: "image", node, score: qrScore(node, before, shareRect) }));
-
-    const canvasCandidates = [...document.querySelectorAll("canvas")]
-      .filter(isVisible)
-      .filter((canvas) => {
-        const rect = canvas.getBoundingClientRect();
-        return isQrSized(rect);
-      })
-      .map((node) => ({ kind: "canvas", node, score: qrScore(node, before, shareRect) + 8 }));
-
-    const svgCandidates = [...document.querySelectorAll("svg")]
-      .filter(isVisible)
-      .filter((svg) => {
-        const rect = svg.getBoundingClientRect();
-        return isQrSized(rect);
-      })
-      .map((node) => ({ kind: "svg", node, score: qrScore(node, before, shareRect) + 4 }));
-
-    const backgroundCandidates = [...document.querySelectorAll("div, span, i")]
-      .filter(isVisible)
-      .map((node) => {
-        const source = backgroundImageSource(node);
-        return source ? { node, source } : null;
-      })
-      .filter(Boolean)
-      .filter(({ node }) => {
-        const rect = node.getBoundingClientRect();
-        return isQrSized(rect);
-      })
-      .map(({ node, source }) => ({ kind: "background", node, source, score: qrScore(node, before, shareRect, source) + 6 }));
-
-    return [...imageCandidates, ...canvasCandidates, ...svgCandidates, ...backgroundCandidates]
-      .filter((candidate) => candidate.score >= 150)
-      .sort((a, b) => b.score - a.score);
+      .filter((node) => node.complete && node.naturalWidth > 0)
+      .map((node) => ({ kind: "image", node, source: node.currentSrc || node.src }));
   }
 
   function isQrSized(rect) {
@@ -1680,6 +1671,11 @@
     const rect = node.getBoundingClientRect();
     const resolvedSource = source || node.currentSrc || node.src || "";
     const text = cleanInlineText(node.closest("div, section, aside, article")?.innerText || node.getAttribute?.("alt") || "");
+    if (!shareRect) return -Infinity;
+    const downloadContainer = node.closest?.("[class*='download'], [class*='app-qrcode'], [class*='app-code']");
+    if (downloadContainer || /下载\s*App|App\s*下载|下载直聘|下载BOSS/i.test(text) || /download|app[-_]?qrcode|app[-_]?code/i.test(resolvedSource)) return -Infinity;
+    const horizontalGap = Math.abs((rect.left + rect.width / 2) - (shareRect.left + shareRect.width / 2));
+    if (horizontalGap > 360 || rect.bottom < shareRect.top - 420 || rect.top > shareRect.bottom + 420) return -Infinity;
     let score = Math.min(rect.width, rect.height);
     const squarePenalty = Math.abs(rect.width - rect.height);
 

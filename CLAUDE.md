@@ -5,3 +5,5 @@
 - Use the next patch version for fixes. For example, after `0.4.2`, the next fixed package must be `0.4.3`.
 - Before handing off a package, run basic syntax checks and rebuild the zip so the importable extension matches the current source.
 - For a release request, commit every current repository change, push `main`, create the matching GitHub Release, and upload the rebuilt zip with Chinese release notes.
+
+- After building a release ZIP, run `python3 scripts/sync-local-extension.py` to update the stable browser installation at `local-extension/`. Keep that directory name unchanged across versions. Keep versioned ZIP archives in `dist/`; do not delete old archives.
