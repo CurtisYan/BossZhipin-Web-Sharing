@@ -4,6 +4,7 @@
 
   const SALARY_RE = /(([\d０-９\ue031-\ue03a]+(?:\.[\d０-９\ue031-\ue03a]+)?\s*[-‐‑‒–—―−~～－]\s*[\d０-９\ue031-\ue03a]+(?:\.[\d０-９\ue031-\ue03a]+)?\s*(?:K|k|万|千|元\s*[\/／]\s*天|元\s*[\/／]\s*月|元\s*[\/／]\s*时|元\s*[\/／]\s*周|元\s*[\/／]\s*年)(?:\s*[·・]\s*[\d０-９\ue031-\ue03a]+\s*薪)?)|([\d０-９\ue031-\ue03a]+(?:\.[\d０-９\ue031-\ue03a]+)?\s*(?:K|k|万|千|元\s*[\/／]\s*天|元\s*[\/／]\s*月|元\s*[\/／]\s*时|元\s*[\/／]\s*周|元\s*[\/／]\s*年)(?:\s*[·・]\s*[\d０-９\ue031-\ue03a]+\s*薪)?)|面议)/;
   const CITY_RE = /(北京|上海|广州|深圳|杭州|成都|重庆|武汉|西安|南京|苏州|天津|长沙|郑州|青岛|宁波|厦门|合肥|佛山|东莞|珠海|中山|惠州|无锡|常州|济南|福州|昆明|南昌|南宁|贵阳|石家庄|太原|沈阳|大连|长春|哈尔滨|海口|兰州|银川|乌鲁木齐|呼和浩特|拉萨|香港|澳门|台湾)/;
+  const PROJECT_URL = "https://github.com/CurtisYan/BossZhipin-Web-Sharing";
   const DEFAULT_QR_TEXT = "扫码查看职位详情";
   const EXTENSION_VERSION = chrome.runtime.getManifest().version;
   const DEBUG_MODE_KEY = "bossShareDebugMode";
@@ -411,6 +412,7 @@
     if (job.address) lines.push(`工作地址：${job.address}`);
     lines.push("", "职位详情：", job.description);
     if (job.url) lines.push("", `职位链接：${job.url}`);
+    lines.push("", `生成工具：BOSS 职位长图分享`, `项目地址：${PROJECT_URL}`);
     return lines.join("\n");
   }
 
@@ -1278,7 +1280,7 @@
     if (/应届/.test(source)) conditionMatches.push("应届");
     if (/实习/.test(source)) conditionMatches.push("实习");
     const experience = source.match(/(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|不限)/)?.[0] || "";
-    const degree = source.match(/(博士|硕士|本科|大专|中专\/中技|高中|学历不限|不限)/)?.[0] || "";
+    const degree = source.match(/(博士|硕士|本科|大专|中专\/中技|高中|学历不限)/)?.[0] || "";
 
     const compactMetaNode = [...root.querySelectorAll("p, div, span")]
       .filter(isVisible)
@@ -1295,8 +1297,8 @@
         city: compactMetaNode.match(CITY_RE)?.[0] || city,
         experience: compactMetaNode.match(/(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|不限)/)?.[0] || experience,
         conditions: compactConditions.length ? compactConditions : conditionMatches,
-        degree: compactMetaNode.match(/(博士|硕士|本科|大专|中专\/中技|高中|学历不限|不限)/)?.[0] || degree,
-        parts: [compactMetaNode.match(CITY_RE)?.[0] || city, compactMetaNode.match(/(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|不限)/)?.[0] || experience, ...(compactConditions.length ? compactConditions : conditionMatches), compactMetaNode.match(/(博士|硕士|本科|大专|中专\/中技|高中|学历不限|不限)/)?.[0] || degree].filter(Boolean)
+        degree: compactMetaNode.match(/(博士|硕士|本科|大专|中专\/中技|高中|学历不限)/)?.[0] || degree,
+        parts: [compactMetaNode.match(CITY_RE)?.[0] || city, compactMetaNode.match(/(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|不限)/)?.[0] || experience, ...(compactConditions.length ? compactConditions : conditionMatches), compactMetaNode.match(/(博士|硕士|本科|大专|中专\/中技|高中|学历不限)/)?.[0] || degree].filter(Boolean)
       };
     }
 
@@ -1341,7 +1343,7 @@
   function metaFromParts(parts) {
     const normalized = parts.map(normalizeMetaPart).filter((part) => isLikelyMetaText(part, "", ""));
     const city = normalized.find((part) => isCityMeta(part)) || "";
-    const degree = normalized.find((part) => /(博士|硕士|本科|大专|中专\/中技|高中|学历不限|不限)/.test(part)) || "";
+    const degree = findDegree(normalized);
     const experience = normalized.find((part) => /(\d+\s*[-–]\s*\d+年|\d+年以上|经验不限|\d+天\/周|\d+个月|\d+年|不限)/.test(part) && part !== degree) || "";
     const conditions = normalized.filter((part) => /^(在校|应届|实习)$/.test(part));
 
@@ -1359,7 +1361,8 @@
 
     for (const selector of descriptionSelectors) {
       const node = root.querySelector(selector);
-      const value = trimDescriptionTail(trimDescriptionIntro(normalizeDescription(node?.innerText || "")));
+      // A dedicated description node contains authored text, including short notices.
+      const value = normalizeDescription(node?.innerText || "");
       if (value.length > 60) return value;
     }
 
@@ -1380,7 +1383,7 @@
       "查看更多信息"
     ]);
 
-    return trimDescriptionTail(trimDescriptionIntro(normalizeDescription(segment || text)));
+    return trimDescriptionTail(normalizeDescription(segment || text));
   }
 
   function pickCompany(lines, description, title) {
@@ -1711,7 +1714,7 @@
     const clipped = descriptionLines.length > maxLines;
     const visibleLines = clipped ? descriptionLines.slice(0, maxLines) : descriptionLines;
     const bodyHeight = visibleLines.reduce((sum, line) => sum + line.height, 0);
-    const height = Math.min(32000, 585 + headerLayout.extraHeight + bodyHeight + 392);
+    const height = Math.min(32000, 585 + headerLayout.extraHeight + bodyHeight + 432);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -1741,7 +1744,7 @@
       y += 56;
     }
 
-    y = Math.min(y + 48, height - 298);
+    y = Math.min(y + 48, height - 338);
     await drawQrCard(ctx, job, margin, y, contentWidth);
     drawVersionStamp(ctx, width, height, margin);
 
@@ -1886,7 +1889,8 @@
     ctx.fillStyle = "#c2cbcf";
     ctx.textAlign = "right";
     ctx.font = '400 22px "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.fillText(`BOSS 职位长图分享 v${EXTENSION_VERSION}`, width - margin, height - 24);
+    ctx.fillText(`BOSS 职位长图分享 v${EXTENSION_VERSION}`, width - margin, height - 54);
+    ctx.fillText(PROJECT_URL, width - margin, height - 24);
     ctx.textAlign = "left";
   }
 
@@ -2053,19 +2057,6 @@
       .join("\n");
   }
 
-  function trimDescriptionIntro(description) {
-    const lines = normalizeDescription(description).split("\n").filter(Boolean);
-    const startIndex = lines.findIndex((line) => {
-      return /^(【.+】|\[.+\]|岗位职责|职位职责|工作职责|工作内容|任职要求|岗位要求|职位要求|[一二三四五六七八九十]+[、.．]|\d+[、.．])/.test(line);
-    });
-
-    if (startIndex > 0) {
-      return trimDescriptionTail(lines.slice(startIndex).join("\n"));
-    }
-
-    return trimDescriptionTail(lines.join("\n"));
-  }
-
   function trimDescriptionTail(description) {
     const lines = normalizeDescription(description).split("\n").filter(Boolean);
 
@@ -2083,8 +2074,6 @@
 
   function isNonDescriptionTailLine(line) {
     if (!line) return true;
-    if (/^[\u4e00-\u9fa5]$/.test(line)) return true;
-    if (/^[\u4e00-\u9fa5]{2,4}$/.test(line)) return true;
     if (/^[\u4e00-\u9fa5]{1,4}(先生|女士)$/.test(line)) return true;
     if (/^(先生|女士|刚刚活跃|今日活跃|去App|与BOSS随时沟通|微信扫码分享|举报|收藏|立即沟通)$/.test(line)) return true;
     if (/^[\u4e00-\u9fa5A-Za-z0-9（）()\s·・]{2,32}[·・]\s*(人事|招聘|HR|经理|总监|负责人|主管|专员)/.test(line)) return true;
@@ -2200,7 +2189,7 @@
   }
 
   function findDegree(parts) {
-    return (parts || []).find((part) => /(博士|硕士|本科|大专|中专\/中技|高中|学历不限|不限)/.test(part)) || "";
+    return (parts || []).map(normalizeMetaPart).find((part) => /^(博士|硕士|本科|大专|中专\/中技|高中|学历不限)$/.test(part)) || "";
   }
 
   function removeSalary(text) {

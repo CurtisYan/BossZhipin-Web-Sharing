@@ -15,7 +15,7 @@ function load() {
   };
   const start = source.indexOf('  chrome.runtime.onMessage.addListener');
   const end = source.indexOf('  function injectFloatingButton()');
-  vm.runInNewContext(source.slice(0, start) + '\n globalThis.api = { jobFieldScope, pickJobHeaderSnapshot, metaFromParts, isCityMeta, findDetailPageUrl, pickRecruiter, completeMetaCity, buildMobileShareMeta };\n' + source.slice(end), context);
+  vm.runInNewContext(source.slice(0, start) + '\n globalThis.api = { jobFieldScope, pickJobHeaderSnapshot, metaFromParts, isCityMeta, findDetailPageUrl, pickRecruiter, completeMetaCity, buildMobileShareMeta, pickDescription, findDegree, formatJobText };\n' + source.slice(end), context);
   return context;
 }
 function node(text = '容器', left = 525, top = -590) {
@@ -113,4 +113,39 @@ test('city fallback preserves existing city and leaves unknown addresses empty',
   const unknown = api.metaFromParts(['本科']);
   api.completeMetaCity(unknown, '面试沟通');
   assert.equal(unknown.city, '');
+});
+
+test('description keeps outsourcing notice and other prose before section headings', () => {
+  const { api } = load();
+  const text = '外包岗位！！\n合同由第三方签订。\n岗位职责：\n1.负责利用公司自研平台进行数据分析、数据挖掘、数据跟踪等交付工作；\n任职要求：\n1.本科及以上学历，计算机、统计学、数学等相关专业；\n接受外包';
+  const root = node();
+  root.queries = { '.job-sec-text': [node(text)] };
+  assert.equal(api.pickDescription(root, ''), text);
+  root.queries = {};
+  assert.equal(api.pickDescription(root, '职位描述\n' + text + '\n工作地址\n广州越秀区'), text);
+});
+test('description keeps paragraphs before numbered duties and filters only UI lines', () => {
+  const { api } = load();
+  const text = '合同性质：劳务派遣\n薪资说明：包含绩效\n1.负责日常数据分析，整理项目资料并完成报表交付。\n2.配合项目负责人开展需求分析、问题排查及数据核验工作。';
+  const root = node();
+  root.queries = { '.job-sec-text': [node('微信扫码分享\n' + text + '\n举报')] };
+  assert.equal(api.pickDescription(root, ''), text);
+});
+test('experience-unlimited never occupies degree or removes bachelor from share metadata', () => {
+  const { api } = load();
+  const meta = api.metaFromParts(['广州', '经验不限', '本科']);
+  assert.equal(meta.degree, '本科');
+  assert.equal(meta.experience, '经验不限');
+  assert.equal(api.findDegree(['经验不限']), '');
+  assert.equal(api.findDegree(['不限', '本科']), '本科');
+  assert.equal(api.findDegree(['学历不限']), '学历不限');
+  assert.equal(api.buildMobileShareMeta({ ...meta, metaParts: meta.parts, salary: '5-6K' }).join('/'), '广州/5-6K/经验不限/本科');
+});
+
+test('copied text includes full job notice, job URL and separate project URL', () => {
+  const { api } = load();
+  const output = api.formatJobText({ title: '数据分析实施交付工程师', description: '外包岗位！！\n岗位职责：数据分析', url: 'https://www.zhipin.com/job_detail/example.html' });
+  assert.ok(output.includes('外包岗位！！'));
+  assert.ok(output.includes('职位链接：https://www.zhipin.com/job_detail/example.html'));
+  assert.ok(output.endsWith('项目地址：https://github.com/CurtisYan/BossZhipin-Web-Sharing'));
 });
